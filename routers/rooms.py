@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from config.db_config import get_db, get_redis
-from schemas.users import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady, UserResponse, MessageResponse, RoomIdResponse, PlayersReadyResponse
-from crud.users import create_room, get_room_by_id, get_all_rooms, get_user_by_id, RedisManager
+from schemas.room import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady, RoomIdResponse, PlayersReadyResponse
+from schemas.user import UserResponse, MessageResponse
+from crud.room import create_room, get_room_by_id, get_all_rooms
+from crud.user import get_user_by_id
+from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 

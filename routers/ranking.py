@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends
 from typing import Optional
 from datetime import datetime
 from config.db_config import get_redis
-from schemas.users import RankingResponse, RankingItem
-from crud.users import RedisManager
+from schemas.ranking import RankingResponse, RankingItem
+from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/ranking", tags=["排行榜"])
 

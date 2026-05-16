@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     MYSQL_PORT: int = 3306
     MYSQL_USER: str = "root"
     MYSQL_PASSWORD: str = "Root%40wen"
-    MYSQL_DB: str = "galax_fortune_dice"
+    MYSQL_DB: str = "galaxy_dice"
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0

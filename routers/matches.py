@@ -3,14 +3,14 @@ from sqlalchemy.orm import Session
 from typing import List
 import random
 from config.db_config import get_db, get_redis
-from schemas.users import (
+from schemas.match import (
     MatchStart, MatchState, RollDice, RollDiceResponse,
-    SelectScore, SelectScoreResponse, UserResponse, GameRecordResponse
+    SelectScore, SelectScoreResponse, GameRecordResponse
 )
-from crud.users import (
-    create_match, get_match_by_id, create_game_record,
-    get_game_records_by_match, get_user_by_id, RedisManager, update_user_total_score
-)
+from schemas.user import UserResponse
+from crud.match import create_match, create_game_record, get_game_records_by_match
+from crud.user import get_user_by_id, update_user_total_score
+from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/match", tags=["对局"])
 
@@ -34,7 +34,8 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
         "current_round": 1,
         "current_turn_user_id": first_player_id,
         "phase": "rolling",
-        "status": "ongoing"
+        "status": "ongoing",
+        "room_id": match_data.room_id
     }
     redis_manager.set_match_state(match.match_id, match_state)
     

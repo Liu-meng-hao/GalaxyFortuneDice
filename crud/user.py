@@ -18,8 +18,7 @@ def create_user(db: Session, user: UserCreate) -> User:
     db_user = User(
         phone=user.phone,
         nickname=user.nickname,
-        password_hash=hashed_password,
-        is_guest=user.is_guest
+        password=hashed_password
     )
     db.add(db_user)
     db.commit()
@@ -29,8 +28,7 @@ def create_user(db: Session, user: UserCreate) -> User:
 def create_guest_user(db: Session) -> User:
     guest_nickname = f"游客_{uuid.uuid4().hex[:8]}"
     db_user = User(
-        nickname=guest_nickname,
-        is_guest=True
+        nickname=guest_nickname
     )
     db.add(db_user)
     db.commit()
@@ -40,5 +38,5 @@ def create_guest_user(db: Session) -> User:
 def update_user_total_score(db: Session, user_id: int, score: int):
     user = get_user_by_id(db, user_id)
     if user:
-        user.total_score += score
+        user.exp += score
         db.commit()

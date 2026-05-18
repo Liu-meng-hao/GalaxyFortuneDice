@@ -51,7 +51,7 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
         players.append(player_data)
         redis_manager.set_room_players(room_data.room_id, players)
     
-    player_responses = [UserResponse(**p, is_guest=False, total_score=0, created_at="2024-01-01T00:00:00") for p in players]
+    player_responses = [UserResponse(**p, is_guest=False, exp=0, create_time="2024-01-01T00:00:00") for p in players]
     return RoomResponse(
         room_id=room.room_id,
         game_mode=room.game_mode,

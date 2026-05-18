@@ -8,7 +8,6 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: Optional[str] = None
-    is_guest: bool = False
 
 class UserLogin(BaseModel):
     phone: str
@@ -16,10 +15,9 @@ class UserLogin(BaseModel):
 
 class UserResponse(UserBase):
     id: int
-    avatar: Optional[str] = None
-    is_guest: bool
-    total_score: int
-    created_at: datetime
+    avatar: str
+    exp: int
+    create_time: datetime
 
     model_config = {"from_attributes": True}
 

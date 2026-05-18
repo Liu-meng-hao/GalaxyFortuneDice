@@ -7,10 +7,11 @@ from utils.security import verify_password, create_access_token
 
 router = APIRouter(prefix="/api/user", tags=["用户"])
 
+# 登录接口
 @router.post("/login", response_model=AuthResponse)
 async def login(user_data: UserLogin, db: Session = Depends(get_db)):
     user = get_user_by_phone(db, user_data.phone)
-    if not user or not verify_password(user_data.password, user.password_hash):
+    if not user or not verify_password(user_data.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="手机号或密码错误"
@@ -19,6 +20,7 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
     user_response = UserResponse.model_validate(user)
     return AuthResponse(user_info=user_response, token=access_token)
 
+# 注册接口
 @router.post("/register", response_model=AuthResponse)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     if user_data.phone and get_user_by_phone(db, user_data.phone):

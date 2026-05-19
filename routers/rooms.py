@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from config.db_config import get_db, get_redis
+from models.user import User
+from utils.security import get_current_user
 from schemas.room import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady, RoomIdResponse, PlayersReadyResponse
 from schemas.user import UserResponse, MessageResponse
 from crud.room import create_room, get_room_by_id, get_all_rooms
@@ -10,26 +12,34 @@ from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
+# 创建房间接口
 @router.post("/create", response_model=RoomIdResponse)
-async def create_room_endpoint(room_data: RoomCreate, db: Session = Depends(get_db), redis = Depends(get_redis)):
+async def create_rooms(room_data: RoomCreate, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     room = create_room(db, room_data.game_mode, room_data.max_players, room_data.user_id)
     redis_manager = RedisManager(redis)
+
     user = get_user_by_id(db, room_data.user_id)
     if user:
+        # 创建者的玩家数据
         player_data = {
-            "id": user.id,
+            "user_id": user.id,
             "nickname": user.nickname,
-            "avatar": user.avatar
+            "avatar": user.avatar,
+            "team_id": 1,
+            "seat_no": 1,
+            "ready_status": True,
+            "is_online": True
         }
         redis_manager.set_room_players(room.room_id, [player_data])
     return {"room_id": room.room_id}
 
+# 加入房间接口
 @router.post("/join", response_model=RoomResponse)
-async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = Depends(get_redis)):
+async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     room = get_room_by_id(db, room_data.room_id)
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
-    if room.status != "waiting":
+    if room.status != 1:
         raise HTTPException(status_code=400, detail="房间已开始游戏")
     
     redis_manager = RedisManager(redis)

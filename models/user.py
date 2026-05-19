@@ -7,8 +7,8 @@ class User(Base):
     __tablename__ = "t_users"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    phone = Column(String(64), unique=True, nullable=False, index=True)
-    password = Column(String(255), nullable=False)
+    phone = Column(String(64), unique=True, nullable=True, index=True)
+    password = Column(String(255), nullable=True)
     nickname = Column(String(32), unique=True, nullable=False)
     avatar = Column(String(255), nullable=False, default='default_avatar.png')
     exp = Column(BigInteger, nullable=False, default=0)

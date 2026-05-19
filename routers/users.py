@@ -4,12 +4,15 @@ from config.db_config import get_db
 from schemas.user import UserCreate, UserLogin, UserResponse, AuthResponse
 from crud.user import get_user_by_phone, create_user, create_guest_user
 from utils.security import verify_password, create_access_token
+from utils.re import validate_login_data, validate_register_data
 
 router = APIRouter(prefix="/api/user", tags=["用户"])
 
 # 登录接口
 @router.post("/login", response_model=AuthResponse)
 async def login(user_data: UserLogin, db: Session = Depends(get_db)):
+    validate_login_data(user_data)
+    
     user = get_user_by_phone(db, user_data.phone)
     if not user or not verify_password(user_data.password, user.password):
         raise HTTPException(
@@ -23,6 +26,8 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
 # 注册接口
 @router.post("/register", response_model=AuthResponse)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    validate_register_data(user_data)
+
     if user_data.phone and get_user_by_phone(db, user_data.phone):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -5,7 +5,7 @@ class RedisManager:
     def __init__(self, redis_client):
         self.redis = redis_client
 
-    def set_room_players(self, room_id: str, players: List[dict]):
+    def set_room_players(self, room_id: int, players: List[dict]):
         key = f"room:{room_id}:players"
         self.redis.set(key, json.dumps(players))
 

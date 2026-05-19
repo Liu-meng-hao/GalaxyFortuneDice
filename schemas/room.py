@@ -3,31 +3,31 @@ from typing import Optional, List
 from schemas.user import UserResponse
 
 class RoomCreate(BaseModel):
-    game_mode: str
+    game_mode: int
     max_players: int
     user_id: int
 
 class RoomJoin(BaseModel):
-    room_id: str
+    room_id: int
     user_id: int
 
 class RoomLeave(BaseModel):
-    room_id: str
+    room_id: int
     user_id: int
 
 class RoomResponse(BaseModel):
-    room_id: str
-    game_mode: str
+    room_id: int
+    game_mode: int
     max_players: int
     owner_id: int
     status: str
     players: List[UserResponse] = []
 
 class RoomIdResponse(BaseModel):
-    room_id: str
+    room_id: int
 
 class PlayerReady(BaseModel):
-    room_id: str
+    room_id: int
     user_id: int
     ready_status: bool
 

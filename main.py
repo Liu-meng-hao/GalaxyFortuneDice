@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from config.db_config import engine, Base
 from models.user import User
 from models.room import Room
-from models.match import Match, GameRecord
+from models.match import Match, MatchScoreSheet, GameRecord
+from models.stats import UserHistoryStats, UserDailyStats
 from routers import users, rooms, matches, ranking
 
 Base.metadata.create_all(bind=engine)

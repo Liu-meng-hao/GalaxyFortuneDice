@@ -23,7 +23,7 @@ class RedisManager:
         data = self.redis.hgetall(key)
         return {int(k): v == "1" for k, v in data.items()}
 
-    def set_match_state(self, match_id: str, state: dict):
+    def set_match_state(self, match_id: int, state: dict):
         key = f"match:{match_id}:state"
         self.redis.set(key, json.dumps(state))
 

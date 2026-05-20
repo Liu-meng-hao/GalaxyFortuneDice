@@ -14,15 +14,6 @@ class RedisManager:
         data = self.redis.get(key)
         return json.loads(data) if data else []
 
-    def set_player_ready(self, room_id: int, user_id: int, ready: bool):
-        key = f"room:{room_id}:ready"
-        self.redis.hset(key, str(user_id), "1" if ready else "0")
-
-    def get_players_ready(self, room_id: int) -> dict:
-        key = f"room:{room_id}:ready"
-        data = self.redis.hgetall(key)
-        return {int(k): v == "1" for k, v in data.items()}
-
     def set_match_state(self, match_id: int, state: dict):
         key = f"match:{match_id}:state"
         self.redis.set(key, json.dumps(state))

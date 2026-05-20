@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from schemas.user import UserResponse
 
 class RoomCreate(BaseModel):
     game_mode: int
@@ -18,18 +17,16 @@ class RoomLeave(BaseModel):
 class RoomResponse(BaseModel):
     room_id: int
     game_mode: int
+    current_players: int = 0
     max_players: int
-    owner_id: int
-    status: str
-    players: List[UserResponse] = []
+    creator_id: int
+    room_status: int
+    players: List[dict] = []
 
-class RoomIdResponse(BaseModel):
-    room_id: int
 
 class PlayerReady(BaseModel):
     room_id: int
     user_id: int
     ready_status: bool
 
-class PlayersReadyResponse(BaseModel):
-    players_ready: dict
+

@@ -4,16 +4,16 @@ from typing import List
 from config.db_config import get_db, get_redis
 from models.user import User
 from utils.security import get_current_user
-from schemas.room import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady, RoomIdResponse, PlayersReadyResponse
+from schemas.room import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady
 from schemas.user import UserResponse, MessageResponse
-from crud.room import create_room, get_room_by_id, get_all_rooms
+from crud.room import create_room, get_room_by_id, get_all_rooms, update_room_status
 from crud.user import get_user_by_id
 from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
 # 创建房间接口
-@router.post("/create", response_model=RoomIdResponse)
+@router.post("/create", response_model=RoomResponse)
 async def create_rooms(room_data: RoomCreate, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     room = create_room(db, room_data.game_mode, room_data.max_players, room_data.user_id)
     redis_manager = RedisManager(redis)
@@ -31,7 +31,16 @@ async def create_rooms(room_data: RoomCreate, db: Session = Depends(get_db), red
             "is_online": True
         }
         redis_manager.set_room_players(room.room_id, [player_data])
-    return {"room_id": room.room_id}
+    players = redis_manager.get_room_players(room.room_id)
+    return RoomResponse(
+        room_id=room.room_id,
+        game_mode=room.game_mode,
+        current_players=len(players),
+        max_players=room.max_players,
+        creator_id=room.creator_id,
+        room_status=room.room_status,
+        players=players
+    )
 
 # 加入房间接口
 @router.post("/join", response_model=RoomResponse)
@@ -48,39 +57,52 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
     if len(players) >= room.max_players:
         raise HTTPException(status_code=400, detail="房间已满")
     
-    if any(p["id"] == room_data.user_id for p in players):
-        raise HTTPException(status_code=400, detail="已在房间中")
-    
+
     user = get_user_by_id(db, room_data.user_id)
     if user:
         player_data = {
-            "id": user.id,
+            "user_id": user.id,
             "nickname": user.nickname,
-            "avatar": user.avatar
+            "avatar": user.avatar,
+            "exp": user.exp,
+            "team_id": 2 if len(players) >= 2 and room.game_mode == 4 else 1,
+            "seat_no": len(players) + 1,
+            "ready_status": False,
+            "is_online": True
         }
         players.append(player_data)
         redis_manager.set_room_players(room_data.room_id, players)
     
-    player_responses = [UserResponse(**p, is_guest=False, exp=0, create_time="2024-01-01T00:00:00") for p in players]
     return RoomResponse(
         room_id=room.room_id,
         game_mode=room.game_mode,
+        current_players=len(players),
         max_players=room.max_players,
-        owner_id=room.owner_id,
-        status=room.status,
-        players=player_responses
+        creator_id=room.creator_id,
+        room_status=room.room_status,
+        players=players
     )
 
+# 离开房间接口
 @router.post("/leave", response_model=MessageResponse)
-async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis = Depends(get_redis)):
+async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
+    # 房主离开房间
+    room = get_room_by_id(db,room_data.room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    if room.creator_id == room_data.user_id:
+        # 解散房间
+        update_room_status(db, room_data.room_id, 4)
+
     redis_manager = RedisManager(redis)
     players = redis_manager.get_room_players(room_data.room_id)
-    players = [p for p in players if p["id"] != room_data.user_id]
+    players = [p for p in players if p["user_id"] != room_data.user_id]
     redis_manager.set_room_players(room_data.room_id, players)
     return {"message": "已离开房间"}
 
+# 获取房间列表接口（暂不使用）
 @router.get("/list", response_model=List[RoomResponse])
-async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis)):
+async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     rooms = get_all_rooms(db)
     redis_manager = RedisManager(redis)
     room_responses = []
@@ -88,27 +110,48 @@ async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis)):
         players = redis_manager.get_room_players(room.room_id)
         player_responses = []
         for p in players:
-            user = get_user_by_id(db, p["id"])
+            user = get_user_by_id(db, p["user_id"])
             if user:
                 player_responses.append(UserResponse.model_validate(user))
         room_responses.append(RoomResponse(
             room_id=room.room_id,
             game_mode=room.game_mode,
+            current_players=len(players),
             max_players=room.max_players,
-            owner_id=room.owner_id,
-            status=room.status,
+            creator_id=room.creator_id,
+            room_status=room.room_status,
             players=player_responses
         ))
     return room_responses
-
+    
+# 玩家状态更新接口
 @router.post("/player/ready", response_model=MessageResponse)
-async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), redis = Depends(get_redis)):
+async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     redis_manager = RedisManager(redis)
-    redis_manager.set_player_ready(ready_data.room_id, ready_data.user_id, ready_data.ready_status)
+    
+    # 获取房间玩家列表
+    players = redis_manager.get_room_players(ready_data.room_id)
+    
+    # 修改用户的 ready_status
+    for player in players:
+        if player["user_id"] == ready_data.user_id:
+            player["ready_status"] = ready_data.ready_status
+            break
+    
+    # 保存回 Redis
+    redis_manager.set_room_players(ready_data.room_id, players)
+    
+    # 获取房间信息，判断调用者是否是房主
+    room = get_room_by_id(db, ready_data.room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 仅当房主调用此接口时，判断房间内所有用户的 ready_status 是否都为 True
+    if room.creator_id == ready_data.user_id:
+        all_ready = all(player.get("ready_status", False) for player in players)
+        
+        return {"is_all_ready": all_ready}
+    
     return {"message": "状态已更新"}
 
-@router.get("/player/info", response_model=PlayersReadyResponse)
-async def get_players_info(room_id: str, redis = Depends(get_redis)):
-    redis_manager = RedisManager(redis)
-    players_ready = redis_manager.get_players_ready(room_id)
-    return {"players_ready": players_ready}
+

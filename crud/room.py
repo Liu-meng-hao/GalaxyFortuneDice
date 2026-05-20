@@ -21,8 +21,15 @@ def get_room_by_id(db: Session, room_id: int) -> Optional[Room]:
     return db.query(Room).filter(Room.room_id == room_id).first()
 
 def get_all_rooms(db: Session) -> List[Room]:
-    return db.query(Room).filter(Room.status == "waiting").all()
+    return db.query(Room).filter(Room.room_status == 1).all()
 
+def update_room_status(db: Session, room_id: int, status: int) -> Optional[Room]:
+    room = get_room_by_id(db, room_id)
+    if room:
+        room.room_status = status
+    db.commit()
+    db.refresh(room)
+    return room
 
 # 生成房间ID(随机房间号)
 def generate_room_id(db: Session) -> int:

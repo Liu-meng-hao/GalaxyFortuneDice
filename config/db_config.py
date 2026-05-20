@@ -5,18 +5,17 @@ import redis
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    MYSQL_HOST: str = "192.168.21.45"
+    MYSQL_HOST: str = "192.168.21.40"
     MYSQL_PORT: int = 3306
     MYSQL_USER: str = "root"
     MYSQL_PASSWORD: str = "Root%40wen"
     MYSQL_DB: str = "galaxy_dice"
-    REDIS_HOST: str = "localhost"
+    REDIS_HOST: str = "192.168.21.40"
     REDIS_PORT: int = 6379
-    REDIS_PASSWORD: str = "123456"
     REDIS_DB: int = 0
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_DAYS: int = 1
 
 settings = Settings()
 
@@ -33,7 +32,6 @@ Base = declarative_base()
 redis_client = redis.Redis(
     host=settings.REDIS_HOST,
     port=settings.REDIS_PORT,
-    password=settings.REDIS_PASSWORD,
     db=settings.REDIS_DB,
     decode_responses=True
 )

@@ -40,12 +40,12 @@ class RedisManager:
         }
         self.redis.set(key, json.dumps(data))
 
-    def get_dice_state(self, match_id: str) -> Optional[dict]:
+    def get_dice_state(self, match_id: int) -> Optional[dict]:
         key = f"match:{match_id}:dice"
         data = self.redis.get(key)
         return json.loads(data) if data else None
 
-    def set_player_scores(self, match_id: str, user_id: int, scores: dict):
+    def set_player_scores(self, match_id: int, user_id: int, scores: dict):
         key = f"match:{match_id}:scores:{user_id}"
         self.redis.set(key, json.dumps(scores))
 

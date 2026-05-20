@@ -8,7 +8,7 @@ from schemas.match import (
     RollDice, RollDiceResponse, SelectScore, SelectScoreResponse, GameRecordResponse
 )
 from schemas.user import UserResponse
-from crud.match import create_match, create_game_record, get_game_records_by_match
+from crud.match import create_match, create_game_record, get_game_records_by_match, create_match_score_sheet
 from crud.user import get_user_by_id, update_user_total_score
 from crud.redis_manager import RedisManager
 
@@ -144,15 +144,13 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     total_score = sum(player_scores.values())
     redis_manager.set_player_scores(score_data.match_id, score_data.user_id, player_scores)
     
-    # 记录到数据库
-    create_game_record(
+    # 记录到计分项使用表
+    create_match_score_sheet(
         db,
         score_data.match_id,
         score_data.user_id,
-        state["current_round"],
         score_data.score_type,
-        round_score,
-        total_score
+        round_score
     )
     
     update_user_total_score(db, score_data.user_id, round_score)

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models.match import Match, GameRecord
+from models.match import Match, GameRecord, MatchScoreSheet
 import uuid
 from typing import List, Optional
 
@@ -49,3 +49,21 @@ def update_match(db: Session, match_id: int, **kwargs):
         db.commit()
         db.refresh(match)
     return match
+
+def create_match_score_sheet(
+    db: Session,
+    match_id: int,
+    user_id: int,
+    score_type: str,
+    score: int
+) -> MatchScoreSheet:
+    db_sheet = MatchScoreSheet(
+        match_id=match_id,
+        user_id=user_id,
+        score_type=score_type,
+        score=score
+    )
+    db.add(db_sheet)
+    db.commit()
+    db.refresh(db_sheet)
+    return db_sheet

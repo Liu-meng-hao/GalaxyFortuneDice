@@ -9,8 +9,8 @@ from schemas.match import (
     RollDice, RollDiceResponse, SelectScore, SelectScoreResponse, GameRecordResponse
 )
 from schemas.user import UserResponse
-from crud.match import create_match, create_game_record, get_game_records_by_match, create_match_score_sheet
-from crud.user import get_user_by_id, update_user_total_score
+from crud.match import create_match, create_game_record, get_game_records_by_match, create_match_score_sheet, update_match
+from crud.user import get_user_by_id, update_user_total_score, update_user_history_stats, update_user_daily_stats
 from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/match", tags=["对局"])
@@ -221,6 +221,12 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
                     rank=rank,
                     is_win=is_win
                 )
+                
+                # 更新用户历史统计表
+                update_user_history_stats(db, ps["user_id"], ps["final_score"], is_win)
+                
+                # 更新用户每日统计表
+                update_user_daily_stats(db, ps["user_id"], ps["final_score"], is_win)
             
             # 获取获胜者
             winner_user_id = player_scores[0]["user_id"] if player_scores else None

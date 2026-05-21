@@ -17,20 +17,22 @@ def get_match_by_id(db: Session, match_id: int) -> Optional[Match]:
 
 def create_game_record(
     db: Session,
-    match_id: str,
+    match_id: int,
     user_id: int,
-    round: int,
-    score_type: str,
-    round_score: int,
-    total_score: int
+    final_score: int,
+    rank: int = 0,
+    is_win: int = 0,
+    game_mode: int = 1,
+    duration: Optional[int] = None
 ) -> GameRecord:
     db_record = GameRecord(
         match_id=match_id,
         user_id=user_id,
-        round=round,
-        score_type=score_type,
-        round_score=round_score,
-        total_score=total_score
+        final_score=final_score,
+        rank=rank,
+        is_win=is_win,
+        game_mode=game_mode,
+        duration=duration
     )
     db.add(db_record)
     db.commit()

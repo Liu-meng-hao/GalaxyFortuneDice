@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 import random
+from datetime import datetime
 from config.db_config import get_db, get_redis
 from schemas.match import (
     MatchStart, MatchState, MatchStartResponse, MatchUserInfo,
@@ -14,9 +15,12 @@ from crud.redis_manager import RedisManager
 
 router = APIRouter(prefix="/api/match", tags=["对局"])
 
-SCORE_TYPES = ["ones", "twos", "threes", "fours", "fives", "sixes",
-               "three_of_a_kind", "four_of_a_kind", "full_house",
-               "small_straight", "large_straight", "yahtzee", "chance"]
+# 计分项类型列表
+SCORE_TYPES = [
+    "ones", "twos", "threes", "fours", "fives", "sixes",
+    "three_of_a_kind", "four_of_a_kind", "full_house",
+    "small_straight", "large_straight", "yahtzee", "chance"
+]
 
 @router.post("/start", response_model=MatchStartResponse)
 async def start_match(match_data: MatchStart, db: Session = Depends(get_db), redis = Depends(get_redis)):
@@ -30,21 +34,24 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
     first_player_id = first_player["user_id"] if first_player else 0
     first_seat_no = first_player["seat_no"] if first_player else 0
     
-    # 初始化对局状态并存储到 Redis
+    # 初始化对局状态并存储到 Redis（包含骰子字段）
     match_state = {
         "match_id": match.id,
+        "room_id": match_data.room_id,
         "current_round": 1,
         "current_turn_user_id": first_player_id,
         "current_seat_no": first_seat_no,
         "phase": "THROWING",
-        "room_id": match_data.room_id,
+        "remain_throw_count": 3,
+        "dice_values": [],
+        "locked_dice": [],
         "selectable_scores": []
     }
     redis_manager.set_match_state(match.id, match_state)
     
-    # 初始化每个玩家的计分板
+    # 初始化每个玩家的实时数据
     for player in room_players:
-        redis_manager.set_player_scores(match.id, player["user_id"], {})
+        redis_manager.init_player_data(match.id, player["user_id"])
     
     # 构建玩家信息
     match_info = []
@@ -58,10 +65,7 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
             is_online=player.get("is_online", True)
         ))
     
-    return MatchStartResponse(
-        id=match.id,
-        match_info=match_info
-    )
+    return MatchStartResponse(id=match.id, match_info=match_info)
 
 @router.get("/state", response_model=MatchState)
 async def get_match_state(match_id: int, db: Session = Depends(get_db), redis = Depends(get_redis)):
@@ -72,10 +76,15 @@ async def get_match_state(match_id: int, db: Session = Depends(get_db), redis = 
     
     return MatchState(
         match_id=match_id,
-        current_round=state["current_round"],
-        current_turn_user=state["current_turn_user_id"] if state["current_turn_user_id"] != 0 else None,
-        phase=state["phase"],
-        selectable_scores=state["selectable_scores"]
+        room_id=state.get("room_id", 0),
+        current_round=state.get("current_round", 1),
+        current_turn_user_id=state.get("current_turn_user_id", 0),
+        current_seat_no=state.get("current_seat_no", 0),
+        phase=state.get("phase", "THROWING"),
+        remain_throw_count=state.get("remain_throw_count", 3),
+        dice_values=state.get("dice_values", []),
+        locked_dice=state.get("locked_dice", []),
+        selectable_scores=state.get("selectable_scores", [])
     )
 
 @router.post("/roll_dice", response_model=RollDiceResponse)
@@ -85,31 +94,36 @@ async def roll_dice(roll_data: RollDice, db: Session = Depends(get_db), redis = 
     if not state:
         raise HTTPException(status_code=404, detail="对局不存在")
     
-    dice_state = redis_manager.get_dice_state(roll_data.match_id)
-    if not dice_state:
+    # 从对局状态获取骰子信息
+    remain_throws = state.get("remain_throw_count", 3)
+    current_dice = state.get("dice_values", [])
+    
+    if remain_throws <= 0:
+        raise HTTPException(status_code=400, detail="投掷次数已用完")
+    
+    # 生成骰子值
+    if not current_dice:
+        # 第一次投掷
         dice_values = [random.randint(1, 6) for _ in range(5)]
-        remain_throws = 2
     else:
-        dice_values = dice_state["dice_values"].copy()
-        remain_throws = dice_state["remain_throws"]
-        
-        if remain_throws <= 0:
-            raise HTTPException(status_code=400, detail="投掷次数已用完")
-        
+        # 后续投掷，根据锁定状态更新
+        dice_values = current_dice.copy()
         if roll_data.lock_mask:
             for i in range(5):
                 if not roll_data.lock_mask[i]:
                     dice_values[i] = random.randint(1, 6)
         else:
             dice_values = [random.randint(1, 6) for _ in range(5)]
-        
-        remain_throws -= 1
     
-    redis_manager.set_dice_state(roll_data.match_id, dice_values, remain_throws)
+    # 更新对局状态中的骰子信息
+    remain_throws -= 1
+    state["remain_throw_count"] = remain_throws
+    state["dice_values"] = dice_values
+    state["locked_dice"] = roll_data.lock_mask or []
     
     # 获取当前玩家已选择的计分项
-    player_scores = redis_manager.get_player_scores(roll_data.match_id, roll_data.user_id) or {}
-    selected_types = set(player_scores.keys())
+    player_data = redis_manager.get_player_data(roll_data.match_id, roll_data.user_id) or {}
+    selected_types = set(player_data.get("used_scores", []))
     
     # 计算可选分数，过滤已选的类型
     selectable_scores = []
@@ -131,24 +145,26 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     if not state:
         raise HTTPException(status_code=404, detail="对局不存在")
     
-    dice_state = redis_manager.get_dice_state(score_data.match_id)
-    if not dice_state:
+    # 从对局状态获取骰子信息
+    dice_values = state.get("dice_values", [])
+    if not dice_values:
         raise HTTPException(status_code=400, detail="请先投掷骰子")
     
-    dice_values = dice_state["dice_values"]
     round_score = calculate_score(dice_values, score_data.score_type)
     
-    # 更新玩家计分板
-    player_scores = redis_manager.get_player_scores(score_data.match_id, score_data.user_id) or {}
-    player_scores[score_data.score_type] = round_score
-    total_score = sum(player_scores.values())
-    redis_manager.set_player_scores(score_data.match_id, score_data.user_id, player_scores)
+    # 添加玩家得分（更新已用计分项和总分）
+    redis_manager.add_player_score(score_data.match_id, score_data.user_id, score_data.score_type, round_score)
+    
+    # 获取更新后的玩家数据
+    player_data = redis_manager.get_player_data(score_data.match_id, score_data.user_id)
+    total_score = player_data["total_score"] if player_data else round_score
     
     # 记录到计分项使用表
     create_match_score_sheet(
         db,
         score_data.match_id,
         score_data.user_id,
+        score_data.score_type,
         score_data.score_type,
         round_score
     )
@@ -180,39 +196,55 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
         if state["current_round"] > 13:
             state["status"] = "finished"
             
-            # 游戏结束，计算所有玩家最终得分并更新数据库
+            # 游戏结束，收集所有玩家的最终得分
+            player_scores = []
             for player in room_players:
-                final_scores = redis_manager.get_player_scores(score_data.match_id, player["user_id"]) or {}
-                final_total = sum(final_scores.values())
+                player_data = redis_manager.get_player_data(score_data.match_id, player["user_id"])
+                final_score = player_data["total_score"] if player_data else 0
+                player_scores.append({
+                    "user_id": player["user_id"],
+                    "final_score": final_score
+                })
+            
+            # 按得分降序排序，计算排名
+            player_scores.sort(key=lambda x: -x["final_score"])
+            for i, ps in enumerate(player_scores):
+                rank = i + 1
+                is_win = 1 if i == 0 else 0  # 第一名获胜
                 
                 # 更新游戏战绩表
                 create_game_record(
                     db,
                     score_data.match_id,
-                    player["user_id"],
-                    13,
-                    "final_total",
-                    final_total,
-                    final_total
+                    ps["user_id"],
+                    ps["final_score"],
+                    rank=rank,
+                    is_win=is_win
                 )
+            
+            # 获取获胜者
+            winner_user_id = player_scores[0]["user_id"] if player_scores else None
             
             # 更新对局表信息
             update_match(
                 db,
                 score_data.match_id,
-                status="finished"
+                match_status=2,           # 1=进行中, 2=已结束
+                winner_user_id=winner_user_id,
+                end_time=datetime.now()
             )
     
     next_player = room_players[next_index]
     
+    # 更新对局状态
     state["current_turn_user_id"] = next_player["user_id"]
     state["current_seat_no"] = next_player["seat_no"]
-    state["phase"] = "rolling"
+    state["phase"] = "THROWING"
     state["selectable_scores"] = []
+    state["remain_throw_count"] = 3
+    state["dice_values"] = []
+    state["locked_dice"] = []
     redis_manager.set_match_state(score_data.match_id, state)
-    
-    # 重置骰子状态
-    redis_manager.set_dice_state(score_data.match_id, [], 3)
     
     return SelectScoreResponse(round_score=round_score, total_score=total_score)
 
@@ -240,35 +272,17 @@ def calculate_score(dice: List[int], score_type: str) -> int:
     elif score_type == "sixes":
         return counts[6] * 6
     elif score_type == "three_of_a_kind":
-        if any(c >= 3 for c in counts):
-            return sum(dice)
-        return 0
+        return sum(dice) if max(counts) >= 3 else 0
     elif score_type == "four_of_a_kind":
-        if any(c >= 4 for c in counts):
-            return sum(dice)
-        return 0
+        return sum(dice) if max(counts) >= 4 else 0
     elif score_type == "full_house":
-        has_three = any(c == 3 for c in counts)
-        has_two = any(c == 2 for c in counts)
-        if has_three and has_two:
-            return 25
-        return 0
+        return 25 if (3 in counts and 2 in counts) else 0
     elif score_type == "small_straight":
-        straights = [{1,2,3,4}, {2,3,4,5}, {3,4,5,6}]
-        dice_set = set(dice)
-        for s in straights:
-            if s.issubset(dice_set):
-                return 30
-        return 0
+        return 30 if any(all(x in dice for x in seq) for seq in [[1,2,3,4], [2,3,4,5], [3,4,5,6]]) else 0
     elif score_type == "large_straight":
-        if dice_sorted == [1,2,3,4,5] or dice_sorted == [2,3,4,5,6]:
-            return 40
-        return 0
+        return 40 if dice_sorted in [[1,2,3,4,5], [2,3,4,5,6]] else 0
     elif score_type == "yahtzee":
-        if any(c == 5 for c in counts):
-            return 50
-        return 0
+        return 50 if max(counts) == 5 else 0
     elif score_type == "chance":
         return sum(dice)
-    else:
-        return 0
+    return 0

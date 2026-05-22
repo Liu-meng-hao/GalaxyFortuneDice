@@ -3,6 +3,8 @@ from typing import Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from config.db_config import get_redis, get_db
+from models.user import User
+from utils.security import get_current_user
 from schemas.ranking import RankingResponse, RankingItem
 from crud.redis_manager import RedisManager
 from crud.user import get_user_by_id
@@ -11,7 +13,7 @@ from models.stats import UserHistoryStats, UserDailyStats
 router = APIRouter(prefix="/api/ranking", tags=["排行榜"])
 
 @router.get("/total", response_model=RankingResponse)
-async def get_total_ranking(limit: int = 10, redis = Depends(get_redis), db: Session = Depends(get_db)):
+async def get_total_ranking(limit: int = 10, redis = Depends(get_redis), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     redis_manager = RedisManager(redis)
     rankings_data = redis_manager.get_total_ranking(limit)
     
@@ -34,7 +36,7 @@ async def get_total_ranking(limit: int = 10, redis = Depends(get_redis), db: Ses
     return RankingResponse(rankings=rankings)
 
 @router.get("/daily", response_model=RankingResponse)
-async def get_daily_ranking(date: Optional[str] = None, limit: int = 10, redis = Depends(get_redis), db: Session = Depends(get_db)):
+async def get_daily_ranking(date: Optional[str] = None, limit: int = 10, redis = Depends(get_redis), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
     

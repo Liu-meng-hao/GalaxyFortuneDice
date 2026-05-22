@@ -80,11 +80,12 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
        
     # 广播玩家进入房间
     await manager.broadcast(
-        room_data.room_id,
+        f"room:{room_data.room_id}",
         {
             "type": "player_join",
             "data": player_data
         }
+        
     )    
     return RoomResponse(
         room_id=room.room_id,
@@ -106,6 +107,16 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
     if room.creator_id == room_data.user_id:
         # 解散房间
         update_room_status(db, room_data.room_id, 4)
+        # 广播房间解散
+        await manager.broadcast(
+            f"room:{room_data.room_id}", 
+            {
+                "type": "room_disissolve",
+                "data": {
+                    "room_id": room_data.room_id
+                }
+            }
+        )
 
     redis_manager = RedisManager(redis)
     players = redis_manager.get_room_players(room_data.room_id)
@@ -114,7 +125,7 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
     
     # 广播玩家离开房间
     await manager.broadcast(
-        room_data.room_id,
+        f"room:{room_data.room_id}",
         {
             "type": "player_leave",
             "data": {
@@ -165,28 +176,41 @@ async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), r
     # 保存回 Redis
     redis_manager.set_room_players(ready_data.room_id, players)
     
+    # 获取房间信息，判断调用者是否是房主
+    room = get_room_by_id(db, ready_data.room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
     # 广播玩家状态更新
     await manager.broadcast(
-        ready_data.room_id, 
+        f"room:{ready_data.room_id}", 
         {
             "type": "player_ready",
             "data": {
                 "user_id": ready_data.user_id,
                 "ready_status": ready_data.ready_status
             }
-        })
-    
-    # 获取房间信息，判断调用者是否是房主
-    room = get_room_by_id(db, ready_data.room_id)
-    if not room:
-        raise HTTPException(status_code=404, detail="房间不存在")
-    
+        },
+        room.creator_id
+    )
+
+
     # 仅当房主调用此接口时，判断房间内所有用户的 ready_status 是否都为 True
     if room.creator_id == ready_data.user_id:
         all_ready = all(player.get("ready_status", False) for player in players)
         if all_ready and len(players) >= room.max_players:
             # 所有玩家都准备就绪，开始游戏
             update_room_status(db, ready_data.room_id, 2)
+            # 广播游戏开始
+            await manager.broadcast(
+                f"room:{ready_data.room_id}", 
+                {
+                    "type": "game_start",
+                    "data": {
+                        "room_id": ready_data.room_id
+                    }
+                }
+            )
             return {"is_all_ready": True}
         return {"is_all_ready": False}
     

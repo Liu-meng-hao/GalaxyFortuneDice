@@ -1,47 +1,197 @@
-from fastapi import WebSocket
 from collections import defaultdict
+from fastapi import WebSocket
+
 
 class ConnectionManager:
 
     def __init__(self):
-        # 房间连接管理
+
+        # 所有 websocket 连接
         # {
-        #   room_id: {
-        #       user_id: websocket
-        #   }
+        #     user_id: websocket
         # }
-        self.rooms = defaultdict(dict)
+        self.connections = {}
 
-    # 用户连接
-    async def connect(self, room_id: int, user_id: int, websocket: WebSocket):
+        # 频道系统
+        # {
+        #     "room:1001": {1,2,3},
+        #     "game:9001": {1,2,3},
+        #     "team:1": {1,2},
+        #     "global": {1,2,3,4}
+        # }
+        self.channels = defaultdict(set)
+
+    # =========================
+    # websocket 连接
+    # =========================
+
+    async def connect(
+        self,
+        user_id: int,
+        websocket: WebSocket
+    ):
+        """
+        用户建立 websocket 连接
+        """
+
         await websocket.accept()
-        self.rooms[room_id][user_id] = websocket
 
-    # 用户断开
-    def disconnect(self, room_id: int, user_id: int):
-        if room_id in self.rooms:
-            self.rooms[room_id].pop(user_id, None)
+        self.connections[user_id] = websocket
 
-            # 房间没人了
-            if not self.rooms[room_id]:
-                del self.rooms[room_id]
+        print(f"用户 {user_id} websocket连接成功")
 
-    # 广播消息
-    async def broadcast(self, room_id: int, message: dict):
-        if room_id not in self.rooms:
+    # =========================
+    # websocket 断开
+    # =========================
+
+    def disconnect(self, user_id: int):
+        """
+        用户 websocket 断开
+        """
+
+        # 删除 websocket连接
+        self.connections.pop(user_id, None)
+
+        # 从所有频道中移除
+        for channel in list(self.channels.keys()):
+
+            self.channels[channel].discard(user_id)
+
+            # 空频道删除
+            if not self.channels[channel]:
+                del self.channels[channel]
+
+        print(f"用户 {user_id} websocket断开")
+
+    # =========================
+    # 加入频道
+    # =========================
+
+    def join_channel(
+        self,
+        channel: str,
+        user_id: int
+    ):
+        """
+        用户加入频道
+        """
+
+        self.channels[channel].add(user_id)
+
+        print(f"用户 {user_id} 加入频道 {channel}")
+
+    # =========================
+    # 离开频道
+    # =========================
+
+    def leave_channel(
+        self,
+        channel: str,
+        user_id: int
+    ):
+        """
+        用户离开频道
+        """
+
+        if channel not in self.channels:
+            return
+
+        self.channels[channel].discard(user_id)
+
+        # 空频道删除
+        if not self.channels[channel]:
+            del self.channels[channel]
+
+        print(f"用户 {user_id} 离开频道 {channel}")
+
+    # =========================
+    # 频道广播
+    # =========================
+
+    async def broadcast(
+        self,
+        channel: str,
+        message: dict,
+        exclude_user_id: int = None
+    ):
+        """
+        频道广播
+        """
+
+        if channel not in self.channels:
             return
 
         disconnected_users = []
 
-        for user_id, websocket in self.rooms[room_id].items():
+        for user_id in self.channels[channel]:
+
+            # 排除自己
+            if exclude_user_id == user_id:
+                continue
+
+            websocket = self.connections.get(user_id)
+
+            if not websocket:
+                continue
+
             try:
+
                 await websocket.send_json(message)
-            except:
+
+            except Exception as e:
+
+                print(f"广播失败 user_id={user_id}, error={e}")
+
                 disconnected_users.append(user_id)
 
-        # 清理断开的连接
+        # 清理断开的用户
         for user_id in disconnected_users:
-            self.disconnect(room_id, user_id)
+            self.disconnect(user_id)
 
-# 全局 websocket 管理器
+    # =========================
+    # 单用户发送
+    # =========================
+
+    async def send_to_user(
+        self,
+        user_id: int,
+        message: dict
+    ):
+        """
+        单播消息
+        """
+
+        websocket = self.connections.get(user_id)
+
+        if not websocket:
+            return
+
+        try:
+
+            await websocket.send_json(message)
+
+        except Exception as e:
+
+            print(f"发送失败 user_id={user_id}, error={e}")
+
+            self.disconnect(user_id)
+
+    # =========================
+    # 获取频道人数
+    # =========================
+
+    def get_channel_users(self, channel: str):
+
+        return list(self.channels.get(channel, set()))
+
+    # =========================
+    # 判断用户是否在线
+    # =========================
+
+    def is_online(self, user_id: int):
+
+        return user_id in self.connections
+
+
+# 全局 websocket管理器
 manager = ConnectionManager()

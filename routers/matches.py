@@ -165,7 +165,6 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
         score_data.match_id,
         score_data.user_id,
         score_data.score_type,
-        score_data.score_type,
         round_score
     )
     

@@ -34,11 +34,11 @@ class RedisManager:
         if not data:
             return None
         
-        # 转换类型
+        # 转换类型（Redis已配置decode_responses=True，数据已是字符串）
         result = {}
         for k, v in data.items():
-            k_str = k.decode()
-            v_str = v.decode()
+            k_str = k  # 已是字符串，无需decode
+            v_str = v  # 已是字符串，无需decode
             
             # 尝试转换为整数
             try:
@@ -60,7 +60,6 @@ class RedisManager:
         return result
 
 
-
     def init_player_data(self, match_id: int, user_id: int):
         """初始化玩家数据（使用 Hash 类型）"""
         key = f"match:{match_id}:player:{user_id}"
@@ -79,12 +78,12 @@ class RedisManager:
         if not data:
             return None
         
-        # 转换类型
+        # 转换类型（Redis已配置decode_responses=True，数据已是字符串）
         return {
-            "dice_values": json.loads(data.get(b"dice_values", b"[]").decode()),
-            "locked_dice": json.loads(data.get(b"locked_dice", b"[]").decode()),
-            "used_scores": json.loads(data.get(b"used_scores", b"[]").decode()),
-            "total_score": int(data.get(b"total_score", b"0").decode())
+            "dice_values": json.loads(data.get("dice_values", "[]")),
+            "locked_dice": json.loads(data.get("locked_dice", "[]")),
+            "used_scores": json.loads(data.get("used_scores", "[]")),
+            "total_score": int(data.get("total_score", "0"))
         }
     
     def update_player_dice(self, match_id: int, user_id: int, dice_values: List[int], locked_dice: List[bool]):

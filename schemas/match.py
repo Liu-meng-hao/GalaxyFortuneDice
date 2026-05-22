@@ -51,3 +51,17 @@ class SelectScore(BaseModel):
 class SelectScoreResponse(BaseModel):
     round_score: int
     total_score: int
+
+class GameRecordResponse(BaseModel):
+    id: int
+    match_id: int
+    user_id: int
+    final_score: int
+    rank: int
+    is_win: int
+    game_mode: int
+    duration: Optional[int] = None
+    create_time: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

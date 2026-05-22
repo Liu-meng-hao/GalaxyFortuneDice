@@ -1,9 +1,12 @@
 from sqlalchemy.orm import Session
 from models.user import User
+from models.stats import UserHistoryStats, UserDailyStats
 from schemas.user import UserCreate
 from utils.security import get_password_hash
 import uuid
 from typing import Optional
+from datetime import date
+from sqlalchemy.sql import func
 
 def get_user_by_phone(db: Session, phone: str) -> Optional[User]:
     return db.query(User).filter(User.phone == phone).first()
@@ -40,3 +43,54 @@ def update_user_total_score(db: Session, user_id: int, score: int):
     if user:
         user.exp += score
         db.commit()
+
+def update_user_history_stats(db: Session, user_id: int, final_score: int, is_win: int):
+    stats = db.query(UserHistoryStats).filter(UserHistoryStats.user_id == user_id).first()
+    
+    if stats:
+        stats.total_games += 1
+        if is_win:
+            stats.total_wins += 1
+        if final_score > stats.max_score:
+            stats.max_score = final_score
+    else:
+        stats = UserHistoryStats(
+            user_id=user_id,
+            total_games=1,
+            total_wins=1 if is_win else 0,
+            max_score=final_score
+        )
+        db.add(stats)
+    
+    db.commit()
+    db.refresh(stats)
+    return stats
+
+def update_user_daily_stats(db: Session, user_id: int, final_score: int, is_win: int, stat_date: date = None):
+    if stat_date is None:
+        stat_date = date.today()
+    
+    stats = db.query(UserDailyStats).filter(
+        UserDailyStats.user_id == user_id,
+        UserDailyStats.stat_date == stat_date
+    ).first()
+    
+    if stats:
+        stats.daily_games += 1
+        if is_win:
+            stats.daily_wins += 1
+        if final_score > stats.daily_max_score:
+            stats.daily_max_score = final_score
+    else:
+        stats = UserDailyStats(
+            user_id=user_id,
+            stat_date=stat_date,
+            daily_games=1,
+            daily_wins=1 if is_win else 0,
+            daily_max_score=final_score
+        )
+        db.add(stats)
+    
+    db.commit()
+    db.refresh(stats)
+    return stats

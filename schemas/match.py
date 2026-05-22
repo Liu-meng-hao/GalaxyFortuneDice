@@ -24,9 +24,14 @@ class SelectableScore(BaseModel):
 
 class MatchState(BaseModel):
     match_id: int
+    room_id: int
     current_round: int
-    current_turn_user: int
+    current_turn_user_id: int
+    current_seat_no: int
     phase: str
+    remain_throw_count: int
+    dice_values: List[int] = []
+    locked_dice: List[int] = []
     selectable_scores: List[SelectableScore] = []
 
 class RollDice(BaseModel):
@@ -51,10 +56,12 @@ class GameRecordResponse(BaseModel):
     id: int
     match_id: int
     user_id: int
-    round: int
-    score_type: str
-    round_score: int
-    total_score: int
-    created_at: datetime
+    final_score: int
+    rank: int
+    is_win: int
+    game_mode: int
+    duration: Optional[int] = None
+    create_time: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    class Config:
+        from_attributes = True

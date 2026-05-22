@@ -5,6 +5,7 @@ from models.room import Room
 from models.match import Match, MatchScoreSheet, GameRecord
 from models.stats import UserHistoryStats, UserDailyStats
 from routers import users, rooms, matches, ranking
+from websocket.room_ws import router as ws_room_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -14,6 +15,8 @@ app.include_router(users.router)
 app.include_router(rooms.router)
 app.include_router(matches.router)
 app.include_router(ranking.router)
+app.include_router(ws_room_router)
+
 
 @app.get("/")
 async def root():

@@ -9,6 +9,7 @@ from schemas.user import UserResponse, MessageResponse
 from crud.room import create_room, get_room_by_id, get_all_rooms, update_room_status
 from crud.user import get_user_by_id
 from crud.redis_manager import RedisManager
+from websocket.manager import manager
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
@@ -48,9 +49,10 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
     room = get_room_by_id(db, room_data.room_id)
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
-    if room.status != 1:
+    if room.room_status == 2:
         raise HTTPException(status_code=400, detail="房间已开始游戏")
-    
+    if room.room_status == 4:
+        raise HTTPException(status_code=400, detail="房间已解散")
     redis_manager = RedisManager(redis)
     players = redis_manager.get_room_players(room_data.room_id)
     
@@ -59,20 +61,31 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
     
 
     user = get_user_by_id(db, room_data.user_id)
-    if user:
-        player_data = {
-            "user_id": user.id,
-            "nickname": user.nickname,
-            "avatar": user.avatar,
-            "exp": user.exp,
-            "team_id": 2 if len(players) >= 2 and room.game_mode == 4 else 1,
-            "seat_no": len(players) + 1,
-            "ready_status": False,
-            "is_online": True
+
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    player_data = {
+        "user_id": user.id,
+        "nickname": user.nickname,
+        "avatar": user.avatar,
+        "exp": user.exp,
+        "team_id": 2 if len(players) >= 2 and room.game_mode == 4 else 1,
+        "seat_no": len(players) + 1,
+        "ready_status": False,
+        "is_online": True
+    }
+    players.append(player_data)
+    redis_manager.set_room_players(room_data.room_id, players)
+       
+    # 广播玩家进入房间
+    await manager.broadcast(
+        room_data.room_id,
+        {
+            "type": "player_join",
+            "data": player_data
         }
-        players.append(player_data)
-        redis_manager.set_room_players(room_data.room_id, players)
-    
+    )    
     return RoomResponse(
         room_id=room.room_id,
         game_mode=room.game_mode,
@@ -98,6 +111,17 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
     players = redis_manager.get_room_players(room_data.room_id)
     players = [p for p in players if p["user_id"] != room_data.user_id]
     redis_manager.set_room_players(room_data.room_id, players)
+    
+    # 广播玩家离开房间
+    await manager.broadcast(
+        room_data.room_id,
+        {
+            "type": "player_leave",
+            "data": {
+                "user_id": room_data.user_id
+            }
+        }
+    )
     return {"message": "已离开房间"}
 
 # 获取房间列表接口（暂不使用）
@@ -125,7 +149,7 @@ async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis), 
     return room_responses
     
 # 玩家状态更新接口
-@router.post("/player/ready", response_model=MessageResponse)
+@router.post("/player/ready")
 async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     redis_manager = RedisManager(redis)
     
@@ -141,6 +165,17 @@ async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), r
     # 保存回 Redis
     redis_manager.set_room_players(ready_data.room_id, players)
     
+    # 广播玩家状态更新
+    await manager.broadcast(
+        ready_data.room_id, 
+        {
+            "type": "player_ready",
+            "data": {
+                "user_id": ready_data.user_id,
+                "ready_status": ready_data.ready_status
+            }
+        })
+    
     # 获取房间信息，判断调用者是否是房主
     room = get_room_by_id(db, ready_data.room_id)
     if not room:
@@ -149,8 +184,11 @@ async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), r
     # 仅当房主调用此接口时，判断房间内所有用户的 ready_status 是否都为 True
     if room.creator_id == ready_data.user_id:
         all_ready = all(player.get("ready_status", False) for player in players)
-        
-        return {"is_all_ready": all_ready}
+        if all_ready and len(players) >= room.max_players:
+            # 所有玩家都准备就绪，开始游戏
+            update_room_status(db, ready_data.room_id, 2)
+            return {"is_all_ready": True}
+        return {"is_all_ready": False}
     
     return {"message": "状态已更新"}
 

@@ -14,6 +14,10 @@ class RedisManager:
         data = self.redis.get(key)
         return json.loads(data) if data else []
 
+    def delete_room_players(self, room_id: int):
+        key = f"room:{room_id}:players"
+        self.redis.delete(key)
+
     def set_match_state(self, match_id: int, state: dict):
         """设置对局状态（Hash 类型）"""
         key = f"match:{match_id}:state"

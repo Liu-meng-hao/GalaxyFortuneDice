@@ -5,11 +5,12 @@ from config.db_config import get_db, get_redis
 from models.user import User
 from utils.security import get_current_user
 from schemas.room import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady
-from schemas.user import UserResponse, MessageResponse
+from schemas.user import UserResponse
 from crud.room import create_room, get_room_by_id, get_all_rooms, update_room_status
 from crud.user import get_user_by_id
 from crud.redis_manager import RedisManager
 from websocket.manager import manager
+from utils.response import success
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
@@ -33,7 +34,7 @@ async def create_rooms(room_data: RoomCreate, db: Session = Depends(get_db), red
         }
         redis_manager.set_room_players(room.room_id, [player_data])
     players = redis_manager.get_room_players(room.room_id)
-    return RoomResponse(
+    return success(RoomResponse(
         room_id=room.room_id,
         game_mode=room.game_mode,
         current_players=len(players),
@@ -41,10 +42,10 @@ async def create_rooms(room_data: RoomCreate, db: Session = Depends(get_db), red
         creator_id=room.creator_id,
         room_status=room.room_status,
         players=players
-    )
+    ), msg="创建房间成功")
 
 # 加入房间接口
-@router.post("/join", response_model=RoomResponse)
+@router.post("/join")
 async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     room = get_room_by_id(db, room_data.room_id)
     if not room:
@@ -87,7 +88,7 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
         }
         
     )    
-    return RoomResponse(
+    return success(RoomResponse(
         room_id=room.room_id,
         game_mode=room.game_mode,
         current_players=len(players),
@@ -95,10 +96,10 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
         creator_id=room.creator_id,
         room_status=room.room_status,
         players=players
-    )
+    ), msg="加入房间成功")
 
 # 离开房间接口
-@router.post("/leave", response_model=MessageResponse)
+@router.post("/leave")
 async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     # 房主离开房间
     room = get_room_by_id(db,room_data.room_id)
@@ -133,10 +134,10 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
             }
         }
     )
-    return {"message": "已离开房间"}
+    return success(msg="已离开房间")
 
 # 获取房间列表接口（暂不使用）
-@router.get("/list", response_model=List[RoomResponse])
+@router.get("/list")
 async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     rooms = get_all_rooms(db)
     redis_manager = RedisManager(redis)
@@ -157,7 +158,7 @@ async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis), 
             room_status=room.room_status,
             players=player_responses
         ))
-    return room_responses
+    return success(room_responses, msg="获取房间列表成功")
     
 # 玩家状态更新接口
 @router.post("/player/ready")
@@ -211,9 +212,7 @@ async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), r
                     }
                 }
             )
-            return {"is_all_ready": True}
-        return {"is_all_ready": False}
+            return success({"is_all_ready": True}, msg="游戏开始")
+        return success({"is_all_ready": False}, msg="等待其他玩家准备")
     
-    return {"message": "状态已更新"}
-
-
+    return success(msg="状态已更新")

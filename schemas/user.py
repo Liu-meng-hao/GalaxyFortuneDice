@@ -29,5 +29,4 @@ class AuthResponse(BaseModel):
     user_info: UserResponse
     token: str
 
-class MessageResponse(BaseModel):
-    message: str
+

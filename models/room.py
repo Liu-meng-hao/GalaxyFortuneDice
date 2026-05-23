@@ -12,3 +12,4 @@ class Room(Base):
     max_players = Column(SmallInteger, nullable=False, default=2)
     current_players = Column(SmallInteger, nullable=False, default=0)
     create_time = Column(DateTime(timezone=True), server_default=func.now())
+    expire_time = Column(DateTime(timezone=True), nullable=True)

@@ -101,12 +101,14 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
 # 离开房间接口
 @router.post("/leave")
 async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
+    redis_manager = RedisManager(redis)
     # 房主离开房间
     room = get_room_by_id(db,room_data.room_id)
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
     if room.creator_id == room_data.user_id:
         # 解散房间
+        redis_manager.delete_room_players(room_data.room_id)
         update_room_status(db, room_data.room_id, 4)
         # 广播房间解散
         await manager.broadcast(
@@ -119,7 +121,6 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
             }
         )
 
-    redis_manager = RedisManager(redis)
     players = redis_manager.get_room_players(room_data.room_id)
     players = [p for p in players if p["user_id"] != room_data.user_id]
     redis_manager.set_room_players(room_data.room_id, players)

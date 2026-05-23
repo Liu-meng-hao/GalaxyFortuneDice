@@ -4,7 +4,7 @@ from config.db_config import get_db
 from schemas.user import UserCreate, UserLogin, UserResponse, AuthResponse
 from crud.user import get_user_by_phone, create_user, create_guest_user
 from utils.security import verify_password, create_access_token
-from utils.response import validate_login_data, validate_register_data
+from utils.re import validate_login_data, validate_register_data
 from utils.response import success
 
 router = APIRouter(prefix="/api/user", tags=["用户"])

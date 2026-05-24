@@ -5,11 +5,12 @@ from schemas.user import UserCreate, UserLogin, UserResponse, AuthResponse
 from crud.user import get_user_by_phone, create_user, create_guest_user
 from utils.security import verify_password, create_access_token
 from utils.re import validate_login_data, validate_register_data
+from utils.response import success
 
 router = APIRouter(prefix="/api/user", tags=["用户"])
 
 # 登录接口
-@router.post("/login", response_model=AuthResponse)
+@router.post("/login")
 async def login(user_data: UserLogin, db: Session = Depends(get_db)):
     validate_login_data(user_data)
     
@@ -21,10 +22,10 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
         )
     access_token = create_access_token(data={"sub": str(user.id)})
     user_response = UserResponse.model_validate(user)
-    return AuthResponse(user_info=user_response, token=access_token)
+    return success(AuthResponse(user_info=user_response, token=access_token), msg="登录成功")
 
 # 注册接口
-@router.post("/register", response_model=AuthResponse)
+@router.post("/register")
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     validate_register_data(user_data)
 
@@ -36,11 +37,11 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     user = create_user(db, user_data)
     access_token = create_access_token(data={"sub": str(user.id)})
     user_response = UserResponse.model_validate(user)
-    return AuthResponse(user_info=user_response, token=access_token)
+    return success(AuthResponse(user_info=user_response, token=access_token), msg="注册成功")
 
-@router.post("/guest", response_model=AuthResponse)
+@router.post("/guest")
 async def guest_login(db: Session = Depends(get_db)):
     user = create_guest_user(db)
     access_token = create_access_token(data={"sub": str(user.id)})
     user_response = UserResponse.model_validate(user)
-    return AuthResponse(user_info=user_response, token=access_token)
+    return success(AuthResponse(user_info=user_response, token=access_token), msg="登录成功")

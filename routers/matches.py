@@ -15,6 +15,7 @@ from crud.match import create_match, create_game_record, get_game_records_by_mat
 from crud.user import get_user_by_id, update_user_total_score, update_user_history_stats, update_user_daily_stats
 from crud.room import get_room_by_id
 from crud.redis_manager import RedisManager
+from websocket.manager import manager
 
 router = APIRouter(prefix="/api/match", tags=["对局"])
 
@@ -27,7 +28,11 @@ SCORE_TYPES = [
 
 @router.post("/start", response_model=MatchStartResponse)
 async def start_match(match_data: MatchStart, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
-    match = create_match(db, match_data.room_id)
+    # 获取房间信息以获取 game_mode
+    room = get_room_by_id(db, match_data.room_id)
+    game_mode = room.game_mode if room else 1
+    
+    match = create_match(db, match_data.room_id, game_mode)
     redis_manager = RedisManager(redis) 
     room_players = redis_manager.get_room_players(match_data.room_id) # 获取房间中的玩家玩家信息
     
@@ -139,6 +144,19 @@ async def roll_dice(roll_data: RollDice, db: Session = Depends(get_db), redis = 
     state["phase"] = "SELECTING"
     redis_manager.set_match_state(roll_data.match_id, state)
     
+    # 广播骰子结果给其他玩家
+    await manager.broadcast(
+        f"match:{roll_data.match_id}",
+        {
+            "type": "dice_rolled",
+            "user_id": roll_data.user_id,
+            "dice_values": dice_values,
+            "remain_throws": remain_throws,
+            "selectable_scores": selectable_scores
+        },
+        exclude_user_id=roll_data.user_id
+    )
+    
     return RollDiceResponse(dice_values=dice_values, remain_throw_count=remain_throws)
 
 @router.post("/select_score", response_model=SelectScoreResponse)
@@ -191,6 +209,19 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     
     # 更新排行榜
     redis_manager.update_total_ranking(score_data.user_id, "", total_score)
+    
+    # 广播分数选择给其他玩家
+    await manager.broadcast(
+        f"match:{score_data.match_id}",
+        {
+            "type": "score_selected",
+            "user_id": score_data.user_id,
+            "score_type": score_data.score_type,
+            "score": round_score,
+            "total_score": total_score
+        },
+        exclude_user_id=score_data.user_id
+    )
     
     # 切换到下一个玩家（使用取余循环）
     room_id = state.get("room_id")
@@ -266,8 +297,28 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
                 winner_user_id=winner_user_id,
                 end_time=datetime.now()
             )
+            
+            # 广播游戏结束给所有玩家
+            await manager.broadcast(
+                f"match:{score_data.match_id}",
+                {
+                    "type": "game_ended",
+                    "results": player_scores,
+                    "winner": winner_user_id
+                }
+            )
     
     next_player = room_players[next_index]
+    
+    # 通知下一个玩家轮到他了
+    await manager.send_to_user(
+        next_player["user_id"],
+        {
+            "type": "your_turn",
+            "match_id": score_data.match_id,
+            "current_round": state.get("current_round", 1)
+        }
+    )
     
     # 更新对局状态
     state["current_turn_user_id"] = next_player["user_id"]

@@ -3,9 +3,10 @@ from models.match import Match, GameRecord, MatchScoreSheet
 import uuid
 from typing import List, Optional
 
-def create_match(db: Session, room_id: int) -> Match:
+def create_match(db: Session, room_id: int, game_mode: int = 1) -> Match:
     db_match = Match(
-        room_id=room_id
+        room_id=room_id,
+        game_mode=game_mode
     )
     db.add(db_match)
     db.commit()

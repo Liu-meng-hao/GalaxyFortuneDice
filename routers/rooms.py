@@ -15,7 +15,7 @@ from utils.response import success
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
 # 创建房间接口
-@router.post("/create", response_model=RoomResponse)
+@router.post("/create")
 async def create_rooms(room_data: RoomCreate, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     room = create_room(db, room_data.game_mode, room_data.max_players, room_data.user_id)
     redis_manager = RedisManager(redis)

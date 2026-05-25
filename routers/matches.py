@@ -11,10 +11,12 @@ from schemas.match import (
     RollDice, RollDiceResponse, SelectScore, SelectScoreResponse, GameRecordResponse
 )
 from schemas.user import UserResponse
-from crud.match import create_match, create_game_record, get_game_records_by_match, create_match_score_sheet, update_match
+from crud.match import create_match, create_game_record, get_game_records_by_match, create_match_score_sheet, update_match, get_upper_section_score
 from crud.user import get_user_by_id, update_user_total_score, update_user_history_stats, update_user_daily_stats
 from crud.room import get_room_by_id
 from crud.redis_manager import RedisManager
+from websocket.manager import manager
+from utils.response import success
 
 router = APIRouter(prefix="/api/match", tags=["对局"])
 
@@ -25,9 +27,13 @@ SCORE_TYPES = [
     "small_straight", "large_straight", "yahtzee", "chance"
 ]
 
-@router.post("/start", response_model=MatchStartResponse)
+@router.post("/start")
 async def start_match(match_data: MatchStart, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
-    match = create_match(db, match_data.room_id)
+    # 获取房间信息以获取 game_mode
+    room = get_room_by_id(db, match_data.room_id)
+    game_mode = room.game_mode if room else 1
+    
+    match = create_match(db, match_data.room_id, game_mode)
     redis_manager = RedisManager(redis) 
     room_players = redis_manager.get_room_players(match_data.room_id) # 获取房间中的玩家玩家信息
     
@@ -68,16 +74,29 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
             is_online=player.get("is_online", True)
         ))
     
-    return MatchStartResponse(id=match.id, match_info=match_info)
+    # 广播对局开始给所有玩家
+    await manager.broadcast(
+        f"match:{match.id}",
+        {
+            "type": "match_started",
+            "match_id": match.id,
+            "room_id": match_data.room_id,
+            "players": [m.dict() for m in match_info],
+            "first_player_id": first_player_id,
+            "game_mode": game_mode
+        }
+    )
+    
+    return success(MatchStartResponse(id=match.id, match_info=match_info), msg="对局开始成功")
 
-@router.get("/state", response_model=MatchState)
+@router.get("/state")
 async def get_match_state(match_id: int, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     redis_manager = RedisManager(redis)
     state = redis_manager.get_match_state(match_id)
     if not state:
         raise HTTPException(status_code=404, detail="对局不存在")
     
-    return MatchState(
+    return success(MatchState(
         match_id=match_id,
         room_id=state.get("room_id", 0),
         current_round=state.get("current_round", 1),
@@ -88,9 +107,9 @@ async def get_match_state(match_id: int, db: Session = Depends(get_db), redis = 
         dice_values=state.get("dice_values", []),
         locked_dice=state.get("locked_dice", []),
         selectable_scores=state.get("selectable_scores", [])
-    )
+    ), msg="获取对局状态成功")
 
-@router.post("/roll_dice", response_model=RollDiceResponse)
+@router.post("/roll_dice")
 async def roll_dice(roll_data: RollDice, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     redis_manager = RedisManager(redis)
     state = redis_manager.get_match_state(roll_data.match_id)
@@ -139,9 +158,22 @@ async def roll_dice(roll_data: RollDice, db: Session = Depends(get_db), redis = 
     state["phase"] = "SELECTING"
     redis_manager.set_match_state(roll_data.match_id, state)
     
-    return RollDiceResponse(dice_values=dice_values, remain_throw_count=remain_throws)
+    # 广播骰子结果给其他玩家
+    await manager.broadcast(
+        f"match:{roll_data.match_id}",
+        {
+            "type": "dice_rolled",
+            "user_id": roll_data.user_id,
+            "dice_values": dice_values,
+            "remain_throws": remain_throws,
+            "selectable_scores": selectable_scores
+        },
+        exclude_user_id=roll_data.user_id
+    )
+    
+    return success(RollDiceResponse(dice_values=dice_values, remain_throw_count=remain_throws), msg="投掷骰子成功")
 
-@router.post("/select_score", response_model=SelectScoreResponse)
+@router.post("/select_score")
 async def select_score(score_data: SelectScore, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     redis_manager = RedisManager(redis)
     
@@ -171,6 +203,20 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     # 计算分数
     round_score = calculate_score(dice_values, score_data.score_type)
     
+    # 检测是否是 Yahtzee（5个相同）
+    is_yahtzee = len(set(dice_values)) == 1 and len(dice_values) == 5
+    
+    # Yahtzee 奖励机制
+    yahtzee_bonus = 0
+    if is_yahtzee:
+        player_data_temp = redis_manager.get_player_data(score_data.match_id, score_data.user_id)
+        yahtzee_bonus_count = player_data_temp.get("yahtzee_bonus_count", 0) if player_data_temp else 0
+        
+        # 如果 Yahtzee 格已被使用（已经获得过 Yahtzee），额外奖励 100 分
+        if yahtzee_bonus_count > 0:
+            yahtzee_bonus = 100
+            redis_manager.add_yahtzee_bonus(score_data.match_id, score_data.user_id, yahtzee_bonus)
+    
     # 添加玩家得分（更新已用计分项和总分）
     redis_manager.add_player_score(score_data.match_id, score_data.user_id, score_data.score_type, round_score)
     
@@ -191,6 +237,21 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     
     # 更新排行榜
     redis_manager.update_total_ranking(score_data.user_id, "", total_score)
+    
+    # 广播分数选择给其他玩家
+    await manager.broadcast(
+        f"match:{score_data.match_id}",
+        {
+            "type": "score_selected",
+            "user_id": score_data.user_id,
+            "score_type": score_data.score_type,
+            "score": round_score,
+            "total_score": total_score,
+            "yahtzee_bonus": yahtzee_bonus,
+            "is_yahtzee": is_yahtzee
+        },
+        exclude_user_id=score_data.user_id
+    )
     
     # 切换到下一个玩家（使用取余循环）
     room_id = state.get("room_id")
@@ -227,9 +288,21 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
             for player in room_players:
                 player_data = redis_manager.get_player_data(score_data.match_id, player["user_id"])
                 final_score = player_data["total_score"] if player_data else 0
+                
+                # 计算上半部分奖励（Upper Section Bonus）
+                upper_section_score = get_upper_section_score(db, score_data.match_id, player["user_id"])
+                upper_bonus = 35 if upper_section_score >= 63 else 0
+                
+                # 如果有上半部分奖励，更新总分
+                if upper_bonus > 0:
+                    redis_manager.add_player_score(score_data.match_id, player["user_id"], "upper_bonus", upper_bonus)
+                    final_score += upper_bonus
+                
                 player_scores.append({
                     "user_id": player["user_id"],
-                    "final_score": final_score
+                    "final_score": final_score,
+                    "upper_section_score": upper_section_score,
+                    "upper_bonus": upper_bonus
                 })
             
             # 按得分降序排序，计算排名
@@ -266,8 +339,28 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
                 winner_user_id=winner_user_id,
                 end_time=datetime.now()
             )
+            
+            # 广播游戏结束给所有玩家
+            await manager.broadcast(
+                f"match:{score_data.match_id}",
+                {
+                    "type": "game_ended",
+                    "results": player_scores,
+                    "winner": winner_user_id
+                }
+            )
     
     next_player = room_players[next_index]
+    
+    # 通知下一个玩家轮到他了
+    await manager.send_to_user(
+        next_player["user_id"],
+        {
+            "type": "your_turn",
+            "match_id": score_data.match_id,
+            "current_round": state.get("current_round", 1)
+        }
+    )
     
     # 更新对局状态
     state["current_turn_user_id"] = next_player["user_id"]
@@ -279,12 +372,12 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     state["locked_dice"] = []
     redis_manager.set_match_state(score_data.match_id, state)
     
-    return SelectScoreResponse(round_score=round_score, total_score=total_score)
+    return success(SelectScoreResponse(round_score=round_score, total_score=total_score), msg="选择分数成功")
 
-@router.get("/final_score", response_model=List[GameRecordResponse])
+@router.get("/final_score")
 async def get_final_score(match_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     records = get_game_records_by_match(db, match_id)
-    return [GameRecordResponse.model_validate(r) for r in records]
+    return success([GameRecordResponse.model_validate(r) for r in records], msg="获取最终成绩成功")
 
 def calculate_score(dice: List[int], score_type: str) -> int:
     dice_sorted = sorted(dice)

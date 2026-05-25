@@ -1,16 +1,19 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from websocket.manager import manager
+from models.user import User
+from utils.security import get_current_user
+from fastapi import Depends
 
 router = APIRouter()
 
 
-@router.websocket("/ws/match/{match_id}/{user_id}")
+@router.websocket("/ws/match/{match_id}")
 async def match_websocket(
     websocket: WebSocket,
     match_id: int,
-    user_id: int
+    current_user: User = Depends(get_current_user)
 ):
-
+    user_id = current_user.user_id
     print(f"用户 {user_id} 尝试连接对局 {match_id}")
 
     # =========================

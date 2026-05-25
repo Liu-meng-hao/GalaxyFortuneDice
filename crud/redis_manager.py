@@ -72,7 +72,8 @@ class RedisManager:
             "dice_values": json.dumps([]),
             "locked_dice": json.dumps([]),
             "used_scores": json.dumps([]),
-            "total_score": 0
+            "total_score": 0,
+            "yahtzee_bonus_count": 0
         })
     
     def get_player_data(self, match_id: int, user_id: int) -> Optional[dict]:
@@ -87,7 +88,8 @@ class RedisManager:
             "dice_values": json.loads(data.get("dice_values", "[]")),
             "locked_dice": json.loads(data.get("locked_dice", "[]")),
             "used_scores": json.loads(data.get("used_scores", "[]")),
-            "total_score": int(data.get("total_score", "0"))
+            "total_score": int(data.get("total_score", "0")),
+            "yahtzee_bonus_count": int(data.get("yahtzee_bonus_count", "0"))
         }
     
     def update_player_dice(self, match_id: int, user_id: int, dice_values: List[int], locked_dice: List[bool]):
@@ -120,6 +122,42 @@ class RedisManager:
             "used_scores": json.dumps(used_scores),
             "total_score": total_score
         })
+    
+    def add_yahtzee_bonus(self, match_id: int, user_id: int, bonus: int):
+        """添加 Yahtzee 奖励分数"""
+        key = f"match:{match_id}:player:{user_id}"
+        
+        # 获取当前数据
+        data = self.get_player_data(match_id, user_id)
+        if not data:
+            return
+        
+        # 更新总分和 Yahtzee 奖励计数
+        total_score = data["total_score"] + bonus
+        yahtzee_bonus_count = data["yahtzee_bonus_count"] + 1
+        
+        # 保存到 Redis
+        self.redis.hset(key, mapping={
+            "total_score": total_score,
+            "yahtzee_bonus_count": yahtzee_bonus_count
+        })
+    
+    def get_upper_section_score(self, match_id: int, user_id: int) -> int:
+        """获取上半部分得分（1-6点）"""
+        key = f"match:{match_id}:player:{user_id}"
+        data = self.redis.hgetall(key)
+        if not data:
+            return 0
+        
+        # 获取已使用的计分项和对应分数
+        used_scores = json.loads(data.get("used_scores", "[]"))
+        
+        # 上半部分的计分项
+        upper_types = ["ones", "twos", "threes", "fours", "fives", "sixes"]
+        
+        # 这里需要从计分表中获取实际分数，暂时返回 0
+        # 实际计算在 matches.py 中进行
+        return 0
 
     def update_total_ranking(self, user_id: int, nickname: str, score: int):
         key = "ranking:total"

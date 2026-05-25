@@ -70,3 +70,13 @@ def create_match_score_sheet(
     db.commit()
     db.refresh(db_sheet)
     return db_sheet
+
+def get_upper_section_score(db: Session, match_id: int, user_id: int) -> int:
+    """获取上半部分得分（ones, twos, threes, fours, fives, sixes）"""
+    upper_types = ["ones", "twos", "threes", "fours", "fives", "sixes"]
+    sheets = db.query(MatchScoreSheet).filter(
+        MatchScoreSheet.match_id == match_id,
+        MatchScoreSheet.user_id == user_id,
+        MatchScoreSheet.score_type.in_(upper_types)
+    ).all()
+    return sum(sheet.score for sheet in sheets)

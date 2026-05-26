@@ -15,7 +15,7 @@ class MatchUserInfo(BaseModel):
     is_online: bool  ######
 
 class MatchStartResponse(BaseModel):
-    id: int
+    match_id: int
     match_info: List[MatchUserInfo]
 
 class SelectableScore(BaseModel):

@@ -87,7 +87,7 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
         }
     )
     
-    return success(MatchStartResponse(id=match.id, match_info=match_info), msg="对局开始成功")
+    return success(MatchStartResponse(match_id=match.id, match_info=match_info), msg="对局开始成功")
 
 @router.get("/state")
 async def get_match_state(match_id: int, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):

@@ -1,5 +1,8 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from websocket.manager import manager
+from sqlalchemy.orm import Session
+from config.db_config import get_db
+from utils.security import get_current_user_websocket
 
 router = APIRouter()
 
@@ -8,8 +11,21 @@ router = APIRouter()
 async def match_websocket(
     websocket: WebSocket,
     match_id: int,
-    user_id: int
+    user_id: int,
+    token: str,
+    db: Session = Depends(get_db)
 ):
+    # =========================
+    # WebSocket 鉴权
+    # =========================
+    user = await get_current_user_websocket(websocket, token, db)
+    if user is None:
+        return
+    
+    # 验证 token 中的用户 ID 是否与路径中的 user_id 匹配
+    if user.id != user_id:
+        await websocket.close(code=1008)
+        return
 
     print(f"用户 {user_id} 尝试连接对局 {match_id}")
 
@@ -77,7 +93,6 @@ async def match_websocket(
         # =========================
         # 离开频道
         # =========================
-
         manager.leave_channel(
             f"match:{match_id}",
             user_id
@@ -86,13 +101,11 @@ async def match_websocket(
         # =========================
         # websocket断开
         # =========================
-
         manager.disconnect(user_id)
 
         # =========================
         # 广播掉线
         # =========================
-
         await manager.broadcast(
             f"match:{match_id}",
             {

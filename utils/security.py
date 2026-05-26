@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config.db_config import settings, get_db
 from sqlalchemy.orm import Session
@@ -52,4 +52,29 @@ async def get_current_user(
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
         raise credentials_exception
+    return user
+
+async def get_current_user_websocket(
+    websocket: WebSocket,
+    token: str,
+    db: Session
+) -> Optional[User]:
+    """
+    WebSocket 鉴权：验证 token 并返回用户
+    """
+    payload = decode_token(token)
+    if payload is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return None
+    
+    user_id: str = payload.get("sub")
+    if user_id is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return None
+    
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return None
+    
     return user

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from websocket.manager import manager
+from sqlalchemy.orm import Session
+from config.db_config import get_db
+from utils.security import get_current_user_websocket
 from models.user import User
-from utils.security import get_current_user
-from fastapi import Depends, HTTPException
 
 router = APIRouter()
 
@@ -11,9 +12,17 @@ router = APIRouter()
 async def room_websocket(
     websocket: WebSocket,
     room_id: int,
-    current_user: User = Depends(get_current_user)
+    token: str,
+    db: Session = Depends(get_db)
 ):
-    user_id = current_user.user_id
+    # =========================
+    # WebSocket 鉴权
+    # =========================
+    user = await get_current_user_websocket(websocket, token, db)
+    if user is None:
+        return
+    
+    user_id = user.id
     
     print(f"用户 {user_id} 尝试连接房间 {room_id}")
 

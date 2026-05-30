@@ -177,6 +177,19 @@ class ConnectionManager:
             self.disconnect(user_id)
 
     # =========================
+    # 清理频道（解散房间时调用）
+    # =========================
+
+    def cleanup_channel(self, channel: str):
+        """
+        清理频道：删除频道记录
+        客户端收到解散消息后会自行断开WebSocket，届时disconnect()会清理连接
+        """
+        user_ids = self.channels.pop(channel, set())
+        if user_ids:
+            print(f"频道 {channel} 已清理，移除 {len(user_ids)} 个用户")
+
+    # =========================
     # 获取频道人数
     # =========================
 

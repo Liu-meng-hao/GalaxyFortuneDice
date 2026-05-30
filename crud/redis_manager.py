@@ -19,9 +19,7 @@ class RedisManager:
         self.redis.delete(key)
 
     def set_match_state(self, match_id: int, state: dict):
-        """设置对局状态（Hash 类型）"""
         key = f"match:{match_id}:state"
-        # 转换需要序列化的字段
         state_copy = state.copy()
         if "dice_values" in state_copy:
             state_copy["dice_values"] = json.dumps(state_copy["dice_values"])
@@ -32,42 +30,35 @@ class RedisManager:
         self.redis.hset(key, mapping=state_copy)
 
     def get_match_state(self, match_id: str) -> Optional[dict]:
-        """获取对局状态（Hash 类型）"""
         key = f"match:{match_id}:state"
         data = self.redis.hgetall(key)
         if not data:
             return None
-        
-        # 转换类型（Redis已配置decode_responses=True，数据已是字符串）
+
         result = {}
         for k, v in data.items():
-            k_str = k  # 已是字符串，无需decode
-            v_str = v  # 已是字符串，无需decode
-            
-            # 尝试转换为整数
+            k_str = k
+            v_str = v
+
             try:
                 result[k_str] = int(v_str)
                 continue
             except ValueError:
                 pass
-            
-            # 尝试转换为 JSON
+
             try:
                 result[k_str] = json.loads(v_str)
                 continue
             except (json.JSONDecodeError, ValueError):
                 pass
-            
-            # 保持字符串
+
             result[k_str] = v_str
-        
+
         return result
 
 
     def init_player_data(self, match_id: int, user_id: int):
-        """初始化玩家数据（使用 Hash 类型）"""
         key = f"match:{match_id}:player:{user_id}"
-        # 初始化字段
         self.redis.hset(key, mapping={
             "dice_values": json.dumps([]),
             "locked_dice": json.dumps([]),
@@ -75,15 +66,13 @@ class RedisManager:
             "total_score": 0,
             "yahtzee_bonus_count": 0
         })
-    
+
     def get_player_data(self, match_id: int, user_id: int) -> Optional[dict]:
-        """获取玩家所有数据"""
         key = f"match:{match_id}:player:{user_id}"
         data = self.redis.hgetall(key)
         if not data:
             return None
-        
-        # 转换类型（Redis已配置decode_responses=True，数据已是字符串）
+
         return {
             "dice_values": json.loads(data.get("dice_values", "[]")),
             "locked_dice": json.loads(data.get("locked_dice", "[]")),
@@ -91,72 +80,56 @@ class RedisManager:
             "total_score": int(data.get("total_score", "0")),
             "yahtzee_bonus_count": int(data.get("yahtzee_bonus_count", "0"))
         }
-    
+
     def update_player_dice(self, match_id: int, user_id: int, dice_values: List[int], locked_dice: List[bool]):
-        """更新玩家骰子数据"""
         key = f"match:{match_id}:player:{user_id}"
         self.redis.hset(key, mapping={
             "dice_values": json.dumps(dice_values),
             "locked_dice": json.dumps(locked_dice)
         })
-    
+
     def add_player_score(self, match_id: int, user_id: int, score_type: str, score: int):
-        """添加玩家得分，更新已用计分项和总分"""
         key = f"match:{match_id}:player:{user_id}"
-        
-        # 获取当前数据
+
         data = self.get_player_data(match_id, user_id)
         if not data:
             return
-        
-        # 更新已用计分项列表
+
         used_scores = data["used_scores"]
         if score_type not in used_scores:
             used_scores.append(score_type)
-        
-        # 更新总分
+
         total_score = data["total_score"] + score
-        
-        # 保存到 Redis
+
         self.redis.hset(key, mapping={
             "used_scores": json.dumps(used_scores),
             "total_score": total_score
         })
-    
+
     def add_yahtzee_bonus(self, match_id: int, user_id: int, bonus: int):
-        """添加 Yahtzee 奖励分数"""
         key = f"match:{match_id}:player:{user_id}"
-        
-        # 获取当前数据
+
         data = self.get_player_data(match_id, user_id)
         if not data:
             return
-        
-        # 更新总分和 Yahtzee 奖励计数
+
         total_score = data["total_score"] + bonus
         yahtzee_bonus_count = data["yahtzee_bonus_count"] + 1
-        
-        # 保存到 Redis
+
         self.redis.hset(key, mapping={
             "total_score": total_score,
             "yahtzee_bonus_count": yahtzee_bonus_count
         })
-    
+
     def get_upper_section_score(self, match_id: int, user_id: int) -> int:
-        """获取上半部分得分（1-6点）"""
         key = f"match:{match_id}:player:{user_id}"
         data = self.redis.hgetall(key)
         if not data:
             return 0
-        
-        # 获取已使用的计分项和对应分数
+
         used_scores = json.loads(data.get("used_scores", "[]"))
-        
-        # 上半部分的计分项
         upper_types = ["ones", "twos", "threes", "fours", "fives", "sixes"]
-        
-        # 这里需要从计分表中获取实际分数，暂时返回 0
-        # 实际计算在 matches.py 中进行
+
         return 0
 
     def update_total_ranking(self, user_id: int, nickname: str, score: int):
@@ -164,15 +137,15 @@ class RedisManager:
         member = f"{user_id}:{nickname}"
         self.redis.zadd(key, {member: score})
 
-    def get_total_ranking(self, limit: int) -> List[tuple]:
+    def get_total_ranking(self, limit: int, offset: int = 0) -> List[tuple]:
         key = "ranking:total"
-        return self.redis.zrevrange(key, 0, limit - 1, withscores=True)
+        return self.redis.zrevrange(key, offset, offset + limit - 1, withscores=True)
 
     def update_daily_ranking(self, date: str, user_id: int, nickname: str, score: int):
         key = f"ranking:daily:{date}"
         member = f"{user_id}:{nickname}"
         self.redis.zadd(key, {member: score})
 
-    def get_daily_ranking(self, date: str, limit: int) -> List[tuple]:
+    def get_daily_ranking(self, date: str, limit: int, offset: int = 0) -> List[tuple]:
         key = f"ranking:daily:{date}"
-        return self.redis.zrevrange(key, 0, limit - 1, withscores=True)
+        return self.redis.zrevrange(key, offset, offset + limit - 1, withscores=True)

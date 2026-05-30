@@ -166,6 +166,7 @@ async def roll_dice(roll_data: RollDice, db: Session = Depends(get_db), redis = 
             "type": "dice_rolled",
             "user_id": roll_data.user_id,
             "dice_values": dice_values,
+            "locked_dice": roll_data.lock_mask or [],
             "remain_throws": remain_throws,
             "selectable_scores": selectable_scores
         },

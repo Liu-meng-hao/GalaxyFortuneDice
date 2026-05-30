@@ -7,6 +7,7 @@ from utils.security import get_current_user
 from schemas.room import RoomCreate, RoomJoin, RoomLeave, RoomResponse, PlayerReady
 from schemas.user import UserResponse
 from crud.room import create_room, get_room_by_id, get_all_rooms, update_room_status
+from crud.match import create_match
 from crud.user import get_user_by_id
 from crud.redis_manager import RedisManager
 from websocket.manager import manager
@@ -56,10 +57,13 @@ async def join_room(room_data: RoomJoin, db: Session = Depends(get_db), redis = 
         raise HTTPException(status_code=400, detail="房间已解散")
     redis_manager = RedisManager(redis)
     players = redis_manager.get_room_players(room_data.room_id)
-    
+
     if len(players) >= room.max_players:
         raise HTTPException(status_code=400, detail="房间已满")
-    
+
+    # 防止同一玩家重复加入房间
+    if any(p["user_id"] == room_data.user_id for p in players):
+        raise HTTPException(status_code=400, detail="你已在房间中")
 
     user = get_user_by_id(db, room_data.user_id)
 
@@ -112,14 +116,17 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
         update_room_status(db, room_data.room_id, 4)
         # 广播房间解散
         await manager.broadcast(
-            f"room:{room_data.room_id}", 
+            f"room:{room_data.room_id}",
             {
-                "type": "room_disissolve",
+                "type": "room_dissolve",
                 "data": {
                     "room_id": room_data.room_id
                 }
             }
         )
+        # 清理WebSocket频道，释放内存
+        manager.cleanup_channel(f"room:{room_data.room_id}")
+        return
 
     players = redis_manager.get_room_players(room_data.room_id)
     players = [p for p in players if p["user_id"] != room_data.user_id]
@@ -192,8 +199,7 @@ async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), r
                 "user_id": ready_data.user_id,
                 "ready_status": ready_data.ready_status
             }
-        },
-        room.creator_id
+        }
     )
 
 
@@ -201,19 +207,22 @@ async def player_ready(ready_data: PlayerReady, db: Session = Depends(get_db), r
     if room.creator_id == ready_data.user_id:
         all_ready = all(player.get("ready_status", False) for player in players)
         if all_ready and len(players) >= room.max_players:
-            # 所有玩家都准备就绪，开始游戏
+            # 所有玩家都准备就绪，创建对局记录
             update_room_status(db, ready_data.room_id, 2)
-            # 广播游戏开始
+            match = create_match(db, ready_data.room_id, room.game_mode)
+
+            # 广播 match_id 给房间内所有玩家
             await manager.broadcast(
-                f"room:{ready_data.room_id}", 
+                f"room:{ready_data.room_id}",
                 {
-                    "type": "game_start",
+                    "type": "match_started",
                     "data": {
+                        "match_id": match.id,
                         "room_id": ready_data.room_id
                     }
                 }
             )
-            return success({"is_all_ready": True}, msg="游戏开始")
+            return success({"is_all_ready": True, "match_id": match.id}, msg="游戏开始")
         return success({"is_all_ready": False}, msg="等待其他玩家准备")
-    
+
     return success(msg="状态已更新")

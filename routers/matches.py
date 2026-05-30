@@ -10,9 +10,8 @@ from schemas.match import (
     MatchStart, MatchState, MatchStartResponse, MatchUserInfo,
     RollDice, RollDiceResponse, SelectScore, SelectScoreResponse, GameRecordResponse
 )
-from schemas.user import UserResponse
-from crud.match import create_match, create_game_record, get_game_records_by_match, create_match_score_sheet, update_match, get_upper_section_score
-from crud.user import get_user_by_id, update_user_total_score, update_user_history_stats, update_user_daily_stats
+from crud.match import create_game_record, get_match_by_id, get_game_records_by_match, create_match_score_sheet, update_match, get_upper_section_score
+from crud.user import update_user_total_score, update_user_history_stats, update_user_daily_stats
 from crud.room import get_room_by_id
 from crud.redis_manager import RedisManager
 from websocket.manager import manager
@@ -29,27 +28,27 @@ SCORE_TYPES = [
 
 @router.post("/start")
 async def start_match(match_data: MatchStart, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
-    # 获取房间信息以获取 game_mode
-    room = get_room_by_id(db, match_data.room_id)
-    game_mode = room.game_mode if room else 1
-    
-    match = create_match(db, match_data.room_id, game_mode)
-    redis_manager = RedisManager(redis) 
-    room_players = redis_manager.get_room_players(match_data.room_id) # 获取房间中的玩家玩家信息
-    
-    # 随机选择起始玩家索引
-    start_index = random.randint(0, len(room_players)-1) if room_players else 0
-    first_player = room_players[start_index] if room_players else None
-    first_player_id = first_player["user_id"] if first_player else 0
-    first_seat_no = first_player["seat_no"] if first_player else 0
-    
-    # 初始化对局状态并存储到 Redis（包含骰子字段）
+    """初始化对局状态（Match记录已由rooms.player_ready创建）"""
+    match = get_match_by_id(db, match_data.match_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="对局不存在")
+
+    redis_manager = RedisManager(redis)
+    room_players = redis_manager.get_room_players(match.room_id)
+    if not room_players:
+        raise HTTPException(status_code=400, detail="房间中没有玩家")
+
+    # 随机选择起始玩家
+    start_index = random.randint(0, len(room_players) - 1)
+    first_player = room_players[start_index]
+
+    # 初始化对局状态到 Redis
     match_state = {
         "match_id": match.id,
-        "room_id": match_data.room_id,
+        "room_id": match.room_id,
         "current_round": 1,
-        "current_turn_user_id": first_player_id,
-        "current_seat_no": first_seat_no,
+        "current_turn_user_id": first_player["user_id"],
+        "current_seat_no": first_player["seat_no"],
         "phase": "THROWING",
         "remain_throw_count": 3,
         "dice_values": [],
@@ -57,37 +56,39 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
         "selectable_scores": []
     }
     redis_manager.set_match_state(match.id, match_state)
-    
+
     # 初始化每个玩家的实时数据
     for player in room_players:
         redis_manager.init_player_data(match.id, player["user_id"])
-    
-    # 构建玩家信息
-    match_info = []
-    for player in room_players:
-        match_info.append(MatchUserInfo(
-            user_id=player.get("user_id", 0),
-            nickname=player.get("nickname", ""),
-            team_id=player.get("team_id", 0),
-            seat_no=player.get("seat_no", 0),
-            ready_status=player.get("ready_status", False),
-            is_online=player.get("is_online", True)
-        ))
-    
-    # 广播对局开始给所有玩家
+
+    # 构建玩家信息列表
+    match_info = [
+        MatchUserInfo(
+            user_id=p["user_id"],
+            nickname=p["nickname"],
+            team_id=p["team_id"],
+            seat_no=p["seat_no"],
+            ready_status=p["ready_status"],
+            is_online=p["is_online"]
+        ) for p in room_players
+    ]
+
+    # 广播对局详情给所有玩家
     await manager.broadcast(
-        f"match:{match.id}",
+        f"room:{match.room_id}",
         {
-            "type": "match_started",
-            "match_id": match.id,
-            "room_id": match_data.room_id,
-            "players": [m.dict() for m in match_info],
-            "first_player_id": first_player_id,
-            "game_mode": game_mode
+            "type": "match_ready",
+            "data": {
+                "match_id": match.id,
+                "room_id": match.room_id,
+                "players": [m.model_dump() for m in match_info],
+                "first_player_id": first_player["user_id"],
+                "game_mode": match.game_mode
+            }
         }
     )
-    
-    return success(MatchStartResponse(match_id=match.id, match_info=match_info), msg="对局开始成功")
+
+    return success(MatchStartResponse(match_id=match.id, match_info=match_info), msg="对局初始化成功")
 
 @router.get("/state")
 async def get_match_state(match_id: int, db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):

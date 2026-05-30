@@ -4,7 +4,7 @@ from datetime import datetime
 from schemas.user import UserResponse
 
 class MatchStart(BaseModel):
-    room_id: int
+    match_id: int
 
 class MatchUserInfo(BaseModel):
     user_id: int

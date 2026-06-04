@@ -144,7 +144,7 @@ async def leave_room(room_data: RoomLeave, db: Session = Depends(get_db), redis 
     )
     return success(msg="已离开房间")
 
-# 获取房间列表接口（暂不使用）
+# 获取房间列表接口
 @router.get("/list")
 async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_current_user)):
     rooms = get_all_rooms(db)
@@ -156,7 +156,7 @@ async def list_rooms(db: Session = Depends(get_db), redis = Depends(get_redis), 
         for p in players:
             user = get_user_by_id(db, p["user_id"])
             if user:
-                player_responses.append(UserResponse.model_validate(user))
+                player_responses.append(UserResponse.model_validate(user).model_dump())
         room_responses.append(RoomResponse(
             room_id=room.room_id,
             game_mode=room.game_mode,

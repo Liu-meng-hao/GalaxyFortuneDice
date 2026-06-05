@@ -84,23 +84,17 @@ async def get_daily_ranking(
 
 
 async def _get_total_ranking_by_max_score(db: Session, redis, offset: int, limit: int):
-    redis_manager = RedisManager(redis)
-    rankings_data = redis_manager.get_total_ranking(limit=limit, offset=offset)
-
-    if not rankings_data:
-        stats = (
-            db.query(UserHistoryStats, User)
-            .join(User, UserHistoryStats.user_id == User.id)
-            .order_by(UserHistoryStats.max_score.desc())
-            .limit(limit)
-            .offset(offset)
-            .all()
-        )
-        for stat, user in stats:
-            redis_manager.update_total_ranking(stat.user_id, user.nickname, stat.max_score)
-        rankings_data = redis_manager.get_total_ranking(limit=limit, offset=offset)
-
-    return rankings_data
+    """按最高分排序 - 直接从数据库查询，与其他排序方式保持一致"""
+    stats_with_users = (
+        db.query(UserHistoryStats, User)
+        .join(User, UserHistoryStats.user_id == User.id)
+        .order_by(UserHistoryStats.max_score.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [(f"{stat.user_id}:{user.nickname}:{stat.total_wins}:{stat.total_games}:{stat.max_score}", stat.max_score) 
+            for stat, user in stats_with_users]
 
 
 async def _get_total_ranking_by_wins(db: Session, offset: int, limit: int):

@@ -202,8 +202,8 @@ async def _build_ranking_items(rankings_data, db: Session = None, offset: int = 
         total_games = int(parts[3]) if len(parts) > 3 else 0
         max_score = int(parts[4]) if len(parts) > 4 else 0
 
-        # 如果从Redis获取的旧数据没有完整字段，尝试从数据库补充
-        if len(parts) <= 2 and db:
+        # 如果从Redis获取的数据没有完整字段，尝试从数据库补充
+        if len(parts) < 5 and db:
             stat = db.query(UserHistoryStats).filter(UserHistoryStats.user_id == user_id).first()
             if stat:
                 wins = stat.total_wins

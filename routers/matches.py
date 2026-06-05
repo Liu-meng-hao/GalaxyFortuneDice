@@ -237,8 +237,12 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     
     update_user_total_score(db, score_data.user_id, round_score)
     
+    # 获取用户信息以更新排行榜
+    user = get_user_by_id(db, score_data.user_id)
+    nickname = user.nickname if user else ""
+    
     # 更新排行榜
-    redis_manager.update_total_ranking(score_data.user_id, "", total_score)
+    redis_manager.update_total_ranking(score_data.user_id, nickname, total_score)
     
     # 广播分数选择给其他玩家
     await manager.broadcast(

@@ -57,9 +57,12 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
     }
     redis_manager.set_match_state(match.id, match_state)
 
-    # 初始化每个玩家的实时数据
+    # 初始化每个玩家的实时数据，并将玩家从房间频道移动到对局频道
     for player in room_players:
         redis_manager.init_player_data(match.id, player["user_id"])
+        # 将玩家从房间频道移动到对局频道
+        manager.leave_channel(f"room:{match.room_id}", player["user_id"])
+        manager.join_channel(f"match:{match.id}", player["user_id"])
 
     # 构建玩家信息列表
     match_info = [

@@ -11,7 +11,7 @@ from schemas.match import (
     RollDice, RollDiceResponse, SelectScore, SelectScoreResponse, GameRecordResponse
 )
 from crud.match import create_game_record, get_match_by_id, get_game_records_by_match, create_match_score_sheet, update_match, get_upper_section_score
-from crud.user import update_user_total_score, update_user_history_stats, update_user_daily_stats
+from crud.user import update_user_total_score, update_user_history_stats, update_user_daily_stats, get_user_by_id
 from crud.room import get_room_by_id
 from crud.redis_manager import RedisManager
 from websocket.manager import manager
@@ -76,9 +76,9 @@ async def start_match(match_data: MatchStart, db: Session = Depends(get_db), red
         ) for p in room_players
     ]
 
-    # 广播对局详情给所有玩家
+    # 广播对局详情给所有玩家（使用 match 频道）
     await manager.broadcast(
-        f"room:{match.room_id}",
+        f"match:{match.id}",
         {
             "type": "match_ready",
             "data": {
@@ -119,6 +119,11 @@ async def roll_dice(roll_data: RollDice, db: Session = Depends(get_db), redis = 
     state = redis_manager.get_match_state(roll_data.match_id)
     if not state:
         raise HTTPException(status_code=404, detail="对局不存在")
+    
+    # 检查对局是否已结束
+    match_status = state.get("status", "playing")
+    if match_status == "finished":
+        raise HTTPException(status_code=400, detail="对局已结束")
     
     # 从对局状态获取骰子信息
     remain_throws = state.get("remain_throw_count", 3)
@@ -217,8 +222,13 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
         player_data_temp = redis_manager.get_player_data(score_data.match_id, score_data.user_id)
         yahtzee_bonus_count = player_data_temp.get("yahtzee_bonus_count", 0) if player_data_temp else 0
         
-        # 如果 Yahtzee 格已被使用（已经获得过 Yahtzee），额外奖励 100 分
-        if yahtzee_bonus_count > 0:
+        # 第一次 Yahtzee：在 "yahtzee" 格填分时，标记计数器
+        # 后续 Yahtzee：任何计分项都给 100 分奖励
+        if score_data.score_type == "yahtzee" and yahtzee_bonus_count == 0:
+            # 第一次在 yahtzee 格填分，标记计数器
+            redis_manager.add_yahtzee_bonus(score_data.match_id, score_data.user_id, 0)
+        elif yahtzee_bonus_count > 0:
+            # 已有过 Yahtzee，再掷出 5 个相同 → 任何计分项都给 100 奖励
             yahtzee_bonus = 100
             redis_manager.add_yahtzee_bonus(score_data.match_id, score_data.user_id, yahtzee_bonus)
     
@@ -302,10 +312,23 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
                 upper_section_score = get_upper_section_score(db, score_data.match_id, player["user_id"])
                 upper_bonus = 35 if upper_section_score >= 63 else 0
                 
-                # 如果有上半部分奖励，更新总分
+                # 如果有上半部分奖励，更新总分并写入数据库
                 if upper_bonus > 0:
+                    # 写入 Redis
                     redis_manager.add_player_score(score_data.match_id, player["user_id"], "upper_bonus", upper_bonus)
                     final_score += upper_bonus
+                    
+                    # 写入数据库（MatchScoreSheet 表）
+                    create_match_score_sheet(
+                        db,
+                        score_data.match_id,
+                        player["user_id"],
+                        "upper_bonus",
+                        upper_bonus
+                    )
+                    
+                    # 更新用户总经验
+                    update_user_total_score(db, player["user_id"], upper_bonus)
                 
                 player_scores.append({
                     "user_id": player["user_id"],
@@ -344,7 +367,7 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
             update_match(
                 db,
                 score_data.match_id,
-                match_status=2,           # 1=进行中, 2=已结束
+                match_status=2,           # 1=进行中，2=已结束
                 winner_user_id=winner_user_id,
                 end_time=datetime.now()
             )
@@ -358,6 +381,12 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
                     "winner": winner_user_id
                 }
             )
+            
+            # 更新对局状态为已结束
+            state["status"] = "finished"
+            redis_manager.set_match_state(score_data.match_id, state)
+            
+            return success(SelectScoreResponse(round_score=round_score, total_score=total_score), msg="游戏结束")
     
     next_player = room_players[next_index]
     
@@ -384,7 +413,7 @@ async def select_score(score_data: SelectScore, db: Session = Depends(get_db), r
     return success(SelectScoreResponse(round_score=round_score, total_score=total_score), msg="选择分数成功")
 
 @router.get("/final_score")
-async def get_final_score(match_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_final_score(match_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     records = get_game_records_by_match(db, match_id)
     return success([GameRecordResponse.model_validate(r) for r in records], msg="获取最终成绩成功")
 

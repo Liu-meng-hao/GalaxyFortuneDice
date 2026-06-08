@@ -4,14 +4,14 @@
 
 ## 技术栈
 
-| 组件 | 技术 |
-|------|------|
-| Web 框架 | FastAPI + Uvicorn |
-| 数据库 | MySQL + SQLAlchemy ORM |
-| 缓存 | Redis |
-| 认证 | JWT (python-jose) + bcrypt |
-| 实时通信 | WebSocket |
-| 数据校验 | Pydantic v2 |
+| 组件 | 技术 | 版本 |
+|------|------|------|
+| Web 框架 | FastAPI + Uvicorn | FastAPI 0.115.0 |
+| 数据库 | MySQL + SQLAlchemy ORM | SQLAlchemy 2.0.35 |
+| 缓存 | Redis | Redis 7.4.0 |
+| 认证 | JWT (python-jose) + bcrypt | python-jose 3.3.0 |
+| 实时通信 | WebSocket | websockets 14.0 |
+| 数据校验 | Pydantic v2 | Pydantic 2.10.0+ |
 
 ## 项目结构
 
@@ -19,6 +19,7 @@
 GalaxyFortuneDice/
 ├── main.py                  # 应用入口，路由注册、CORS 配置
 ├── requirements.txt         # Python 依赖
+├── test_main.http           # HTTP 测试脚本
 ├── config/
 │   └── db_config.py         # 数据库/Redis 连接、环境变量配置
 ├── models/                  # SQLAlchemy ORM 模型
@@ -53,14 +54,25 @@ GalaxyFortuneDice/
     └── match_ws.py          # 对局 WebSocket
 ```
 
-## 环境准备
+## 快速开始
+
+### 环境要求
+
+- Python 3.10+
+- MySQL 8.0+
+- Redis 7.0+
 
 ### 依赖安装
 
 ```bash
+# 创建虚拟环境
 python -m venv venv
+
+# 激活虚拟环境
 venv\Scripts\activate          # Windows
 # source venv/bin/activate    # Linux/Mac
+
+# 安装依赖
 pip install -r requirements.txt
 ```
 
@@ -90,7 +102,10 @@ ACCESS_TOKEN_EXPIRE_DAYS=1
 uvicorn main:app --reload --host 0.0.0.0 --port 8001
 ```
 
-启动后访问 `http://localhost:8001/docs` 查看 Swagger API 文档。
+启动后访问以下地址：
+- API 文档：`http://localhost:8001/docs`（Swagger UI）
+- 备用文档：`http://localhost:8001/redoc`（ReDoc）
+- 健康检查：`http://localhost:8001/health`
 
 ## 数据库表结构
 
@@ -208,3 +223,36 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8001
 | large_straight | 5 个连续数字，固定 40 分 |
 | yahtzee | 5 颗相同，固定 50 分 |
 | chance | 任意组合，全部骰子之和 |
+
+## 项目特性
+
+- ✅ 用户认证：支持手机号注册登录和游客登录
+- ✅ 房间管理：创建、加入、离开房间，准备状态管理
+- ✅ 实时对战：基于 WebSocket 的实时骰子对战
+- ✅ 计分系统：完整的 Yahtzee 计分规则实现
+- ✅ 排行榜：总分排行榜和每日排行榜
+- ✅ 数据统计：用户历史统计和每日统计
+- ✅ 心跳机制：WebSocket 连接状态检测
+
+## 开发说明
+
+### 代码风格
+
+- 使用 PEP 8 代码规范
+- 使用 Pydantic v2 进行数据校验
+- 使用 SQLAlchemy 2.0 风格的 ORM
+
+### 测试
+
+项目包含 `test_main.http` 文件，可用于快速测试 API 接口。
+
+### 部署建议
+
+- 使用 Gunicorn + Uvicorn 作为生产服务器
+- 配置 Nginx 作为反向代理
+- 使用 Docker 容器化部署
+- 在生产环境中使用强密码和 HTTPS
+
+## 版本
+
+v1.0.0
